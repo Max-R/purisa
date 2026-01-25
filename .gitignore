@@ -129,4 +129,4 @@ frontend/src/output.css
 .claude/
 
 # Empty directories that might have been created
-frontend/src/composables/
+frontend/src/composables/AGENTS.md

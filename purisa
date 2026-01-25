@@ -2,8 +2,16 @@
 # Purisa CLI Wrapper
 # Makes commands cleaner: purisa <command> instead of python3 cli.py <command>
 
-# Get the directory where this script lives
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Get the directory where this script lives (resolve symlinks)
+SOURCE="${BASH_SOURCE[0]}"
+# Resolve symlinks to get the actual script location
+while [ -L "$SOURCE" ]; do
+    DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+    SOURCE="$(readlink "$SOURCE")"
+    # If SOURCE is relative, resolve it relative to the symlink's directory
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 
 # Change to backend directory so .env is found
 cd "$SCRIPT_DIR/backend"

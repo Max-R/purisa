@@ -1,0 +1,132 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables - NEVER COMMIT THESE!
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+**/.env
+**/.env.local
+
+# Credentials and secrets
+*.pem
+*.key
+*.cert
+credentials.json
+secrets.yaml
+secrets.yml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Frontend (Bun/Node)
+node_modules/
+.npm
+.eslintcache
+dist/
+.cache/
+.parcel-cache/
+.nuxt/
+.next/
+out/
+.vuepress/dist
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage/
+*.cover
+.hypothesis/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Purisa specific
+purisa.db
+purisa.db-journal
+purisa.db.bak
+backend/purisa.db
+backend/purisa.db-journal
+
+# PID files (from start.sh)
+.backend.pid
+.frontend.pid
+.tailwind.pid
+*.pid
+
+# ML Model Cache (Detoxify/PyTorch)
+.cache/
+~/.cache/torch/
+~/.cache/huggingface/
+*.pt
+*.pth
+*.bin
+!requirements*.txt
+
+# Compiled Tailwind CSS (generated file)
+frontend/src/output.css
+
+# Bun lockfile (optional - some prefer to commit this)
+# bun.lock
+
+# Package lock files (keep one, ignore the other if using Bun)
+# package-lock.json
+
+# Claude Code
+.claude/
+
+# Empty directories that might have been created
+frontend/src/composables/

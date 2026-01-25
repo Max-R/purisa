@@ -1,0 +1,72 @@
+# Platform configuration for Purisa
+# Use environment variables with ${VAR_NAME} syntax
+
+# Global comment collection settings
+# Identifies top-performing posts and harvests comments for bot detection
+comment_collection:
+  enabled: true
+  # Minimum normalized engagement score (0.0-1.0) to be considered a "top performer"
+  min_engagement_score: 0.3
+  # Maximum comments to collect per post
+  max_comments_per_post: 100
+  # Maximum posts to harvest comments from per collection cycle
+  max_posts_for_comment_harvest: 20
+
+bluesky:
+  enabled: true
+  # Credentials (use app-specific password, not main password)
+  handle: ${BLUESKY_HANDLE}  # e.g., "your-handle.bsky.social"
+  password: ${BLUESKY_PASSWORD}
+
+  # Collection targets
+  targets:
+    hashtags:
+      - politics
+      - election2024
+      - uspolitics
+      - congress
+      - scotus
+    keywords:
+      - "supreme court"
+      - "senate"
+      - "house of representatives"
+      - "white house"
+
+  # Collection settings
+  collection:
+    refresh_interval: 600  # seconds (10 minutes)
+    posts_per_cycle: 100
+
+hackernews:
+  enabled: true
+  # No authentication required for Hacker News
+
+  # Collection targets
+  targets:
+    # For HN, these are story types: top, new, best, ask, show, job
+    types:
+      - top
+      - new
+    keywords:
+      - politics
+      - election
+      - government
+      - congress
+
+  # Collection settings
+  collection:
+    refresh_interval: 1800  # seconds (30 minutes)
+    posts_per_cycle: 50
+
+# Future platforms
+mastodon:
+  enabled: false
+  # Configuration for Mastodon when implemented
+
+twitter:
+  enabled: false
+  # Configuration for Twitter/X when implemented
+
+reddit:
+  enabled: false
+  # Configuration for Reddit when implemented

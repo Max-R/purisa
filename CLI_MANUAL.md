@@ -126,11 +126,13 @@ purisa collect
 3. Stores posts and accounts in database
 4. Handles duplicates automatically
 
+**Note:** When using the web dashboard's Collection Panel, comment harvesting from top-performing posts is enabled by default. This collects comments from viral posts (engagement ratio ≥0.3) and runs inflammatory content detection using the Detoxify ML model.
+
 ---
 
 ### `purisa analyze`
 
-Analyze accounts for bot-like behavior using 7 detection signals.
+Analyze accounts for bot-like behavior using 13 detection signals.
 
 **Usage:**
 ```bash
@@ -161,7 +163,7 @@ purisa analyze --account did:plc:abc123xyz --platform bluesky
 purisa analyze --platform hackernews
 ```
 
-**Detection Signals (0-12.5 scale):**
+**Core Detection Signals (0-13.5 max):**
 1. **New Account** (0-2): Recently created accounts
 2. **High Frequency** (0-3): Impossibly high posting rates
 3. **Repetitive Content** (0-2.5): Duplicate or near-duplicate posts
@@ -170,6 +172,15 @@ purisa analyze --platform hackernews
 6. **Incomplete Profile** (0-1): Missing bio, avatar, etc.
 7. **Temporal Patterns** (0-1): 24/7 posting behavior
 8. **Unverified Account** (0-1.5): Lacks verification or trust signals
+
+**Comment-Based Signals (0-8.5 max):**
+9. **Inflammatory Content** (0-3): Toxic/hateful comments (Detoxify ML)
+10. **Comment Frequency** (0-2): High-volume comment activity
+11. **Comment Timing** (0-1.5): Rapid replies to viral content
+12. **Comment Repetition** (0-1): Copy-paste comments
+13. **Low Quality Comments** (0-1): Generic/spammy comment patterns
+
+**Total Maximum Score: 22.0**
 
 **Threshold:** Accounts scoring ≥7.0 are flagged as suspicious.
 
@@ -556,17 +567,28 @@ The CLI works alongside the web API. You can:
 1. **Collect via CLI, view via dashboard:**
    ```bash
    purisa collect --platform bluesky --query "#politics" --limit 200
-   # Then visit http://localhost:5173
+   # Then visit http://localhost:3000
    ```
 
-2. **Trigger analysis programmatically:**
+2. **Trigger collection via API:**
+   ```bash
+   # Collect with query and harvest comments
+   curl -X POST "http://localhost:8000/api/collection/trigger?platform=bluesky&query=%23politics&limit=100&harvest_comments=true"
+   ```
+
+3. **Trigger analysis programmatically:**
    ```bash
    curl -X POST http://localhost:8000/api/analysis/trigger
    ```
 
-3. **Export data:**
+4. **Export data:**
    ```bash
    curl http://localhost:8000/api/accounts/flagged | jq . > flagged.json
+   ```
+
+5. **Get comment statistics:**
+   ```bash
+   curl http://localhost:8000/api/stats/comments | jq .
    ```
 
 ---
@@ -583,6 +605,6 @@ The CLI works alongside the web API. You can:
 ## Version
 
 CLI Version: 1.0.0
-Purisa Backend: FastAPI + SQLAlchemy
-Frontend: Vue 3 + Pinia
-Last Updated: 2026-01-23
+Purisa Backend: FastAPI + SQLAlchemy + Detoxify ML
+Frontend: React 19 + shadcn/ui
+Last Updated: 2026-01-25

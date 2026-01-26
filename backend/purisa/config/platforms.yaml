@@ -6,11 +6,13 @@
 comment_collection:
   enabled: true
   # Minimum normalized engagement score (0.0-1.0) to be considered a "top performer"
-  min_engagement_score: 0.3
+  # For Bluesky: score = (likes + reposts*2 + replies*1.5) / 1000
+  # 0.01 = ~10 engagement points (low threshold for testing)
+  min_engagement_score: 0.01
   # Maximum comments to collect per post
   max_comments_per_post: 100
   # Maximum posts to harvest comments from per collection cycle
-  max_posts_for_comment_harvest: 20
+  max_posts_for_comment_harvest: 50
 
 bluesky:
   enabled: true

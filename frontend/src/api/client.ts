@@ -39,7 +39,7 @@ class ApiClient {
    * Transform API response to match frontend types
    */
   private transformAccount(apiAccount: any): AccountWithScore {
-    return {
+    const result: AccountWithScore = {
       account: {
         id: apiAccount.account.id,
         username: apiAccount.account.username,
@@ -61,6 +61,18 @@ class ApiClient {
         lastUpdated: apiAccount.score.last_updated
       }
     }
+
+    // Include comment stats if present
+    if (apiAccount.comment_stats !== undefined) {
+      result.commentStats = apiAccount.comment_stats ? {
+        totalComments: apiAccount.comment_stats.total_comments,
+        inflammatoryCount: apiAccount.comment_stats.inflammatory_count,
+        inflammatoryRatio: apiAccount.comment_stats.inflammatory_ratio,
+        repetitiveCount: apiAccount.comment_stats.repetitive_count
+      } : null
+    }
+
+    return result
   }
 
   /**
@@ -69,9 +81,10 @@ class ApiClient {
   async getAllAccounts(
     platform?: string,
     limit: number = 50,
-    offset: number = 0
+    offset: number = 0,
+    includeCommentStats: boolean = false
   ): Promise<{ accounts: AccountWithScore[]; total: number }> {
-    const params: any = { limit, offset }
+    const params: any = { limit, offset, include_comment_stats: includeCommentStats }
     if (platform) {
       params.platform = platform
     }
@@ -89,9 +102,10 @@ class ApiClient {
   async getFlaggedAccounts(
     platform?: string,
     limit: number = 50,
-    offset: number = 0
+    offset: number = 0,
+    includeCommentStats: boolean = false
   ): Promise<{ accounts: AccountWithScore[]; total: number }> {
-    const params: any = { limit, offset }
+    const params: any = { limit, offset, include_comment_stats: includeCommentStats }
     if (platform) {
       params.platform = platform
     }
@@ -203,6 +217,52 @@ class ApiClient {
   }
 
   /**
+   * Get all comments made by an account
+   */
+  async getAccountComments(
+    platform: string,
+    accountId: string,
+    limit: number = 100,
+    offset: number = 0,
+    includeInflammatoryFlags: boolean = true
+  ): Promise<AccountCommentsResult> {
+    const params = {
+      limit,
+      offset,
+      include_inflammatory_flags: includeInflammatoryFlags
+    }
+
+    const response = await this.client.get(`/accounts/${platform}/${accountId}/comments`, { params })
+    const data = response.data
+
+    return {
+      accountId: data.account_id,
+      platform: data.platform,
+      username: data.username,
+      totalComments: data.total_comments,
+      limit: data.limit,
+      offset: data.offset,
+      comments: data.comments.map((c: any) => ({
+        id: c.id,
+        content: c.content,
+        createdAt: c.created_at,
+        engagement: c.engagement,
+        parentId: c.parent_id,
+        parentPreview: c.parent_preview ? {
+          id: c.parent_preview.id,
+          contentSnippet: c.parent_preview.content_snippet,
+          accountId: c.parent_preview.account_id
+        } : null,
+        inflammatory: c.inflammatory ? {
+          severityScore: c.inflammatory.severity_score,
+          triggeredCategories: c.inflammatory.triggered_categories,
+          toxicityScores: c.inflammatory.toxicity_scores
+        } : null
+      }))
+    }
+  }
+
+  /**
    * Trigger analysis
    */
   async triggerAnalysis(options: {
@@ -253,6 +313,34 @@ export interface AnalysisResult {
     signals: Record<string, number>
     flagged: boolean
   }
+}
+
+export interface AccountComment {
+  id: string
+  content: string
+  createdAt: string | null
+  engagement: Record<string, number>
+  parentId: string | null
+  parentPreview: {
+    id: string
+    contentSnippet: string | null
+    accountId: string
+  } | null
+  inflammatory: {
+    severityScore: number
+    triggeredCategories: string[]
+    toxicityScores: Record<string, number>
+  } | null
+}
+
+export interface AccountCommentsResult {
+  accountId: string
+  platform: string
+  username: string
+  totalComments: number
+  limit: number
+  offset: number
+  comments: AccountComment[]
 }
 
 // Export singleton instance

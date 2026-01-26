@@ -11,6 +11,7 @@ from purisa.models.post import Post
 from purisa.models.detection import Flag, Score
 from purisa.services.collector import UniversalCollector
 from purisa.services.analyzer import BotDetector
+from purisa.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ async def get_platform_status():
 async def get_flagged_accounts(
     platform: Optional[str] = Query(None, description="Filter by platform"),
     limit: int = Query(50, ge=1, le=5000, description="Maximum number of accounts"),
-    offset: int = Query(0, ge=0, description="Number of accounts to skip")
+    offset: int = Query(0, ge=0, description="Number of accounts to skip"),
+    include_comment_stats: bool = Query(False, description="Include per-account comment statistics")
 ):
     """Get flagged accounts with pagination support."""
     try:
@@ -68,10 +70,20 @@ async def get_flagged_accounts(
 
             # Apply pagination
             scores_with_accounts = query.offset(offset).limit(limit).all()
-            results = []
 
+            # Pre-fetch comment stats if requested
+            comment_stats_map = {}
+            if include_comment_stats:
+                account_ids = [account.id for score, account in scores_with_accounts]
+                if account_ids:
+                    stats = session.query(CommentStatsDB).filter(
+                        CommentStatsDB.account_id.in_(account_ids)
+                    ).all()
+                    comment_stats_map = {s.account_id: s for s in stats}
+
+            results = []
             for score, account in scores_with_accounts:
-                results.append({
+                result = {
                     "account": {
                         "id": account.id,
                         "username": account.username,
@@ -88,7 +100,22 @@ async def get_flagged_accounts(
                         "flagged": bool(score.flagged),
                         "last_updated": score.last_updated.isoformat() if score.last_updated else None
                     }
-                })
+                }
+
+                # Add comment stats if requested
+                if include_comment_stats:
+                    stats = comment_stats_map.get(account.id)
+                    if stats:
+                        result["comment_stats"] = {
+                            "total_comments": stats.total_comments,
+                            "inflammatory_count": stats.inflammatory_comment_count,
+                            "inflammatory_ratio": stats.inflammatory_ratio,
+                            "repetitive_count": stats.repetitive_comment_count
+                        }
+                    else:
+                        result["comment_stats"] = None
+
+                results.append(result)
 
             return {
                 "accounts": results,
@@ -106,7 +133,8 @@ async def get_flagged_accounts(
 async def get_all_accounts(
     platform: Optional[str] = Query(None, description="Filter by platform"),
     limit: int = Query(50, ge=1, le=5000, description="Maximum number of accounts"),
-    offset: int = Query(0, ge=0, description="Number of accounts to skip")
+    offset: int = Query(0, ge=0, description="Number of accounts to skip"),
+    include_comment_stats: bool = Query(False, description="Include per-account comment statistics")
 ):
     """Get all accounts with their scores with pagination support."""
     try:
@@ -127,10 +155,20 @@ async def get_all_accounts(
 
             # Apply pagination
             scores_with_accounts = query.offset(offset).limit(limit).all()
-            results = []
 
+            # Pre-fetch comment stats if requested
+            comment_stats_map = {}
+            if include_comment_stats:
+                account_ids = [account.id for score, account in scores_with_accounts]
+                if account_ids:
+                    stats = session.query(CommentStatsDB).filter(
+                        CommentStatsDB.account_id.in_(account_ids)
+                    ).all()
+                    comment_stats_map = {s.account_id: s for s in stats}
+
+            results = []
             for score, account in scores_with_accounts:
-                results.append({
+                result = {
                     "account": {
                         "id": account.id,
                         "username": account.username,
@@ -147,7 +185,22 @@ async def get_all_accounts(
                         "flagged": bool(score.flagged),
                         "last_updated": score.last_updated.isoformat() if score.last_updated else None
                     }
-                })
+                }
+
+                # Add comment stats if requested
+                if include_comment_stats:
+                    stats = comment_stats_map.get(account.id)
+                    if stats:
+                        result["comment_stats"] = {
+                            "total_comments": stats.total_comments,
+                            "inflammatory_count": stats.inflammatory_comment_count,
+                            "inflammatory_ratio": stats.inflammatory_ratio,
+                            "repetitive_count": stats.repetitive_comment_count
+                        }
+                    else:
+                        result["comment_stats"] = None
+
+                results.append(result)
 
             return {
                 "accounts": results,
@@ -352,10 +405,22 @@ async def trigger_collection(
             result["accounts_discovered"] = len(account_ids)
 
             # Optionally harvest comments from top performers
-            if harvest_comments:
-                comments = await collector.harvest_comments_from_top_posts(platform, limit=20)
-                result["comments_collected"] = len(comments)
-                result["message"] = f"Collected {len(posts)} posts from {len(account_ids)} accounts, harvested {len(comments)} comments"
+            if harvest_comments and posts:
+                # Identify top performers from collected posts
+                top_posts = collector._identify_top_performers(posts)
+                comments_count = 0
+                if top_posts:
+                    # Harvest comments from top performers
+                    await collector._harvest_comments_phase(top_posts)
+                    # Count comments collected in this batch
+                    db = get_database()
+                    with db.get_session() as session:
+                        comments_count = session.query(PostDB).filter(
+                            PostDB.parent_id.in_([p.id for p in top_posts]),
+                            PostDB.post_type == 'comment'
+                        ).count()
+                result["comments_collected"] = comments_count
+                result["message"] = f"Collected {len(posts)} posts from {len(account_ids)} accounts, harvested {comments_count} comments from {len(top_posts)} top posts"
             else:
                 result["message"] = f"Collected {len(posts)} posts from {len(account_ids)} accounts"
         elif platform:
@@ -632,6 +697,104 @@ async def get_account_comment_stats(platform: str, account_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting comment stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/accounts/{platform}/{account_id}/comments")
+async def get_account_comments(
+    platform: str,
+    account_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    include_inflammatory_flags: bool = Query(True)
+):
+    """
+    Get all comments made by a specific account.
+
+    Useful for bot detection verification - allows reviewing all comments
+    from an account to identify patterns like repetitive content, rapid-fire
+    commenting, or coordinated behavior.
+    """
+    try:
+        db = get_database()
+
+        with db.get_session() as session:
+            # Verify account exists
+            account = session.query(AccountDB).filter_by(id=account_id).first()
+            if not account:
+                raise HTTPException(status_code=404, detail="Account not found")
+
+            # Get all comments by this account
+            comments_query = session.query(PostDB).filter(
+                PostDB.account_id == account_id,
+                PostDB.post_type == 'comment'
+            ).order_by(PostDB.created_at.desc())
+
+            total = comments_query.count()
+            comments = comments_query.offset(offset).limit(limit).all()
+
+            # Get inflammatory flags if requested
+            inflammatory_map = {}
+            if include_inflammatory_flags and comments:
+                comment_ids = [c.id for c in comments]
+                flags = session.query(InflammatoryFlagDB).filter(
+                    InflammatoryFlagDB.post_id.in_(comment_ids)
+                ).all()
+                inflammatory_map = {f.post_id: f for f in flags}
+
+            # Get parent post info for context
+            parent_ids = list(set(c.parent_id for c in comments if c.parent_id))
+            parent_posts = {}
+            if parent_ids:
+                parents = session.query(PostDB).filter(PostDB.id.in_(parent_ids)).all()
+                parent_posts = {p.id: p for p in parents}
+
+            result_comments = []
+            for comment in comments:
+                comment_data = {
+                    "id": comment.id,
+                    "content": comment.content,
+                    "created_at": comment.created_at.isoformat() if comment.created_at else None,
+                    "engagement": comment.engagement,
+                    "parent_id": comment.parent_id,
+                    "parent_preview": None,
+                    "inflammatory": None
+                }
+
+                # Add parent post preview for context
+                if comment.parent_id and comment.parent_id in parent_posts:
+                    parent = parent_posts[comment.parent_id]
+                    comment_data["parent_preview"] = {
+                        "id": parent.id,
+                        "content_snippet": parent.content[:200] if parent.content else None,
+                        "account_id": parent.account_id
+                    }
+
+                # Add inflammatory flag if exists
+                if comment.id in inflammatory_map:
+                    flag = inflammatory_map[comment.id]
+                    comment_data["inflammatory"] = {
+                        "severity_score": flag.severity_score,
+                        "triggered_categories": flag.triggered_categories,
+                        "toxicity_scores": flag.toxicity_scores
+                    }
+
+                result_comments.append(comment_data)
+
+            return {
+                "account_id": account_id,
+                "platform": platform,
+                "username": account.username,
+                "total_comments": total,
+                "limit": limit,
+                "offset": offset,
+                "comments": result_comments
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting account comments: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

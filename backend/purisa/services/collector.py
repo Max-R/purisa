@@ -341,8 +341,8 @@ class UniversalCollector:
                 post_db = session.query(PostDB).filter_by(id=post.id).first()
                 if post_db:
                     post_db.is_top_performer = 1
-                    post_db.top_performer_threshold = threshold
             session.commit()
+        logger.debug(f"Marked {len(posts)} posts as top performers (threshold={threshold})")
 
     async def _harvest_comments_phase(self, top_posts: List[Post]):
         """
@@ -394,22 +394,29 @@ class UniversalCollector:
         db = get_database()
 
         with db.get_session() as session:
-            for comment in comments:
-                # Ensure account exists
-                account_exists = session.query(AccountDB).filter_by(
-                    id=comment.account_id
-                ).first()
+            # Track accounts processed in this batch to avoid duplicate inserts
+            processed_accounts_in_batch: Set[str] = set()
 
-                if not account_exists:
-                    # Create minimal account entry
-                    account_db = AccountDB(
-                        id=comment.account_id,
-                        username=comment.metadata.get('author_handle', comment.account_id),
-                        platform=comment.platform,
-                        created_at=datetime.now(),
-                        first_seen=datetime.now()
-                    )
-                    session.merge(account_db)
+            for comment in comments:
+                # Ensure account exists (check both DB and current batch)
+                if comment.account_id not in processed_accounts_in_batch:
+                    account_exists = session.query(AccountDB).filter_by(
+                        id=comment.account_id
+                    ).first()
+
+                    if not account_exists:
+                        # Create minimal account entry
+                        account_db = AccountDB(
+                            id=comment.account_id,
+                            username=comment.metadata.get('author_handle', comment.account_id),
+                            platform=comment.platform,
+                            created_at=datetime.now(),
+                            first_seen=datetime.now()
+                        )
+                        session.merge(account_db)
+                        session.flush()  # Ensure account is committed before dependent comment
+
+                    processed_accounts_in_batch.add(comment.account_id)
 
                 # Store comment as post with parent_id and post_type
                 comment_db = PostDB(

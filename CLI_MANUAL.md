@@ -70,7 +70,7 @@ Database URL: sqlite:///./purisa.db
 
 ### `purisa collect`
 
-Collect posts from social media platforms.
+Collect posts from social media platforms with real-time progress tracking.
 
 **Usage:**
 ```bash
@@ -80,6 +80,9 @@ purisa collect --platform <platform> --query "<search>" --limit <number>
 # Collect from multiple queries (--query can be repeated)
 purisa collect --platform <platform> --query "<query1>" --query "<query2>" --limit <number>
 
+# Collect without comment harvesting
+purisa collect --platform <platform> --query "<search>" --limit <number> --no-harvest-comments
+
 # Run full collection cycle (uses config from platforms.yaml)
 purisa collect
 ```
@@ -88,6 +91,26 @@ purisa collect
 - `--platform` - Platform to collect from: `bluesky` or `hackernews`
 - `--query` - Search query or hashtag (can be specified multiple times for batch collection)
 - `--limit` - Number of posts to collect **per query** (default: 50)
+- `--harvest-comments / --no-harvest-comments` - Enable/disable comment harvesting from top posts (default: enabled)
+
+**Progress Tracking:**
+
+The CLI displays progress bars when `tqdm` is available (installed by default):
+
+```
+Queries: 100%|████████████████████| 3/3 [00:15<00:00, current=#politics]
+✓ Collected and stored 150 posts from 3 queries
+
+Identifying top-performing posts...
+  Posts qualifying: 12/150 (threshold: 0.01)
+
+Harvesting comments from 12 top posts...
+Harvesting comments: 100%|████████| 12/12 [00:08<00:00, comments=47]
+
+✓ Harvested 47 comments from 12 top posts
+```
+
+If `tqdm` is not available, text-based progress updates are shown instead.
 
 **Bluesky Queries:**
 - Hashtags: `#politics`, `#election2024`, `#climate`
@@ -126,7 +149,21 @@ purisa collect
 3. Stores posts and accounts in database
 4. Handles duplicates automatically
 
-**Note:** When using the web dashboard's Collection Panel, comment harvesting from top-performing posts is enabled by default. This collects comments from viral posts (engagement ratio ≥0.3) and runs inflammatory content detection using the Detoxify ML model.
+**Comment Harvesting:**
+
+When `--harvest-comments` is enabled (default), the CLI:
+1. Identifies top-performing posts based on engagement score
+2. Shows stats: qualifying posts, threshold, and any capping
+3. Harvests comments with a progress bar
+4. Fetches full profiles for commenter accounts
+5. Runs inflammatory content detection (Detoxify ML)
+
+**Top Performer Stats:**
+
+The CLI shows detailed stats about which posts qualify for comment harvesting:
+- `Posts qualifying`: How many posts meet the engagement threshold
+- `Threshold`: The minimum engagement score (configurable in platforms.yaml)
+- `Capped at`: If more posts qualify than the max limit, shows how many were skipped
 
 ---
 
@@ -186,13 +223,28 @@ purisa analyze --platform hackernews
 
 **Note:** Verified Bluesky accounts (blue checkmark) and high-karma HN users (≥1000) receive 0 points for the unverified signal, reducing their overall bot score.
 
-**Example output:**
+**Progress Tracking:**
+
+The CLI displays a progress bar during analysis:
+
 ```
 Analyzing all accounts...
+Analyzing: 100%|████████████████████| 156/156 [00:12<00:00, flagged=12]
 
-✓ Analyzed 32 accounts
-  Flagged: 3
-  Clean: 29
+✓ Analyzed 156 accounts
+  Flagged: 12
+  Clean: 144
+```
+
+**Example output (without tqdm):**
+```
+Analyzing all accounts...
+  Progress: 20/156 accounts, 2 flagged
+  Progress: 40/156 accounts, 4 flagged
+  ...
+✓ Analyzed 156 accounts
+  Flagged: 12
+  Clean: 144
 ```
 
 ---
@@ -607,4 +659,4 @@ The CLI works alongside the web API. You can:
 CLI Version: 1.0.0
 Purisa Backend: FastAPI + SQLAlchemy + Detoxify ML
 Frontend: React 19 + shadcn/ui
-Last Updated: 2026-01-25
+Last Updated: 2026-01-26

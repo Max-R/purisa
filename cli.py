@@ -22,6 +22,13 @@ from purisa.services.collector import UniversalCollector
 from purisa.services.analyzer import BotDetector
 from purisa.config.settings import get_settings
 
+# Progress bar support
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+
 
 @click.group()
 def cli():
@@ -35,7 +42,8 @@ def cli():
 @click.option('--platform', type=str, help='Platform to collect from (bluesky, hackernews)')
 @click.option('--query', type=str, multiple=True, help='Search query or hashtag (can be specified multiple times)')
 @click.option('--limit', type=int, default=50, help='Number of posts to collect per query')
-def collect(platform, query, limit):
+@click.option('--harvest-comments/--no-harvest-comments', default=True, help='Harvest comments from top-performing posts')
+def collect(platform, query, limit, harvest_comments):
     """Collect posts from social media platforms."""
     async def _collect():
         collector = UniversalCollector()
@@ -43,14 +51,63 @@ def collect(platform, query, limit):
         if platform and query:
             # Collect from specific platform with multiple queries
             total_posts = 0
-            for q in query:
-                click.echo(f"Collecting {limit} posts from {platform} with query: {q}")
+            all_posts = []
+
+            # Progress bar for queries
+            query_iter = tqdm(query, desc="Queries", unit="query") if TQDM_AVAILABLE else query
+
+            for q in query_iter:
+                if TQDM_AVAILABLE:
+                    query_iter.set_postfix(current=q[:20])
+                else:
+                    click.echo(f"Collecting {limit} posts from {platform} with query: {q}")
+
                 posts = await collector.collect_from_platform(platform, q, limit)
                 await collector.store_posts(posts)
-                click.echo(f"  ✓ Collected and stored {len(posts)} posts for '{q}'")
+                all_posts.extend(posts)
+
+                if not TQDM_AVAILABLE:
+                    click.echo(f"  ✓ Collected and stored {len(posts)} posts for '{q}'")
                 total_posts += len(posts)
 
-            click.echo(f"\n✓ Total: Collected and stored {total_posts} posts from {len(query)} queries")
+            click.echo(f"\n✓ Collected and stored {total_posts} posts from {len(query)} queries")
+
+            # Harvest comments from top performers
+            if harvest_comments and all_posts:
+                click.echo("\nIdentifying top-performing posts...")
+                top_posts, stats = collector._identify_top_performers(all_posts, return_stats=True)
+
+                click.echo(f"  Posts qualifying: {stats['posts_qualifying']}/{stats['posts_collected']} "
+                          f"(threshold: {stats['min_engagement_score']})")
+
+                if stats['posts_capped'] > 0:
+                    click.echo(f"  Capped at: {stats['max_posts_for_comment_harvest']} "
+                              f"({stats['posts_capped']} skipped)")
+
+                if top_posts:
+                    click.echo(f"\nHarvesting comments from {len(top_posts)} top posts...")
+
+                    # Progress bar for comment harvesting
+                    if TQDM_AVAILABLE:
+                        pbar = tqdm(total=len(top_posts), desc="Harvesting comments", unit="post")
+
+                    total_comments = 0
+                    for i, post in enumerate(top_posts):
+                        comments = await collector._harvest_comments_for_post(post)
+                        total_comments += len(comments) if comments else 0
+
+                        if TQDM_AVAILABLE:
+                            pbar.update(1)
+                            pbar.set_postfix(comments=total_comments)
+                        elif (i + 1) % 5 == 0 or (i + 1) == len(top_posts):
+                            click.echo(f"  Progress: {i + 1}/{len(top_posts)} posts, {total_comments} comments")
+
+                    if TQDM_AVAILABLE:
+                        pbar.close()
+
+                    click.echo(f"\n✓ Harvested {total_comments} comments from {len(top_posts)} top posts")
+                else:
+                    click.echo("  No posts met engagement threshold for comment harvesting")
         else:
             # Run full collection cycle
             click.echo("Running full collection cycle for all platforms...")
@@ -82,11 +139,46 @@ def analyze(account, platform):
         else:
             click.echo("✗ Account not found")
     else:
-        # Analyze all accounts
+        # Analyze all accounts with progress bar
         click.echo(f"Analyzing all accounts{f' from {platform}' if platform else ''}...")
-        scores = analyzer.analyze_all_accounts(platform=platform)
 
-        flagged_count = sum(1 for s in scores if s.flagged)
+        # Get account count first for progress bar
+        db = get_database()
+        with db.get_session() as session:
+            query = session.query(AccountDB)
+            if platform:
+                query = query.filter_by(platform=platform)
+            account_ids = [a.id for a in query.all()]
+
+        if not account_ids:
+            click.echo("No accounts to analyze")
+            return
+
+        scores = []
+        flagged_count = 0
+
+        # Progress bar for analysis
+        if TQDM_AVAILABLE:
+            pbar = tqdm(account_ids, desc="Analyzing", unit="account")
+            for account_id in pbar:
+                score = analyzer.analyze_account(account_id)
+                if score:
+                    scores.append(score)
+                    if score.flagged:
+                        flagged_count += 1
+                    pbar.set_postfix(flagged=flagged_count)
+            pbar.close()
+        else:
+            total = len(account_ids)
+            for i, account_id in enumerate(account_ids):
+                score = analyzer.analyze_account(account_id)
+                if score:
+                    scores.append(score)
+                    if score.flagged:
+                        flagged_count += 1
+                if (i + 1) % 20 == 0 or (i + 1) == total:
+                    click.echo(f"  Progress: {i + 1}/{total} accounts, {flagged_count} flagged")
+
         click.echo(f"\n✓ Analyzed {len(scores)} accounts")
         click.echo(f"  Flagged: {flagged_count}")
         click.echo(f"  Clean: {len(scores) - flagged_count}")

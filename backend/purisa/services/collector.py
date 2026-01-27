@@ -433,6 +433,46 @@ class UniversalCollector:
         if accounts_to_analyze:
             logger.info(f"Flagged {len(accounts_to_analyze)} accounts with inflammatory comments for analysis")
 
+    async def _harvest_comments_for_post(self, post: Post) -> List[Post]:
+        """
+        Harvest comments from a single post. Returns list of comments collected.
+
+        Used by CLI for progress tracking per-post.
+        """
+        max_comments = self.comment_config.get('max_comments_per_post', 100)
+        fetch_profiles = self.comment_config.get('fetch_commenter_profiles', True)
+
+        try:
+            platform = self.platforms.get(post.platform)
+            if not platform:
+                return []
+
+            # Fetch comments
+            comments = await platform.get_post_comments(post.id, max_comments)
+
+            if not comments:
+                return []
+
+            # Store comments and collect new account IDs
+            new_accounts = await self._store_comments(comments, parent_id=post.id)
+
+            # Mark post as having comments collected
+            self._mark_comments_collected(post.id)
+
+            # Analyze comments for inflammatory content
+            await self._analyze_comments_for_inflammatory(comments, parent_post=post)
+
+            # Fetch profiles for new commenters
+            if fetch_profiles and new_accounts:
+                await self._fetch_commenter_profiles_batch(new_accounts)
+
+            logger.debug(f"Harvested {len(comments)} comments from post {post.id}")
+            return comments
+
+        except Exception as e:
+            logger.error(f"Error harvesting comments for post {post.id}: {e}")
+            return []
+
     async def _store_comments(self, comments: List[Post], parent_id: str) -> List[dict]:
         """
         Store comments in database.

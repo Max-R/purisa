@@ -676,16 +676,22 @@ This will:
 
 ## CLI Commands
 
-The Purisa CLI provides commands for data collection, analysis, and viewing results.
+The Purisa CLI provides commands for data collection, analysis, and viewing results with real-time progress tracking.
 
 **Quick Reference:**
 ```bash
 purisa init                                      # Initialize database
 purisa collect --platform bluesky --query "#AI" --limit 50
-purisa analyze                                   # Analyze all accounts
+purisa collect --platform bluesky --query "#politics" --no-harvest-comments
+purisa analyze                                   # Analyze all accounts (with progress bar)
 purisa flagged                                   # View flagged accounts
 purisa stats                                     # Show statistics
 ```
+
+**Features:**
+- Progress bars for collection and analysis operations (requires `tqdm`)
+- Comment harvesting with top performer stats (shows qualifying posts, thresholds, capping)
+- Multi-query support (collect from multiple queries in one command)
 
 **📖 Full CLI Documentation:** See [CLI_MANUAL.md](CLI_MANUAL.md) for:
 - Complete command reference

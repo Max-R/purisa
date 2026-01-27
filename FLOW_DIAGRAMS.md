@@ -30,7 +30,8 @@ flowchart TD
 
     subgraph TopPerf["4. TOP PERFORMER IDENTIFICATION"]
         CALC_ENG["Calculate engagement score<br/>(likes + reposts×2 + replies×1.5) / 1000"]
-        FILTER["Filter: score ≥ 0.01 threshold"]
+        FILTER["Filter: score ≥ min_engagement_score"]
+        CAP["Cap at max_posts_for_comment_harvest"]
         MARK["Mark PostDB.is_top_performer = 1"]
     end
 
@@ -56,7 +57,7 @@ flowchart TD
     UC --> CFG --> PLAT
     PLAT --> FETCH --> TRANSFORM
     TRANSFORM --> STORE_POST --> STORE_ACCT
-    STORE_ACCT --> CALC_ENG --> FILTER --> MARK
+    STORE_ACCT --> CALC_ENG --> FILTER --> CAP --> MARK
     MARK --> FETCH_COMMENTS --> STORE_COMMENTS --> FETCH_PROFILES --> MARK_COLLECTED
     MARK_COLLECTED --> DETOXIFY --> FLAG --> QUEUE
     QUEUE --> RESULT
@@ -72,6 +73,55 @@ flowchart TD
 | Bluesky Adapter | `backend/purisa/platforms/bluesky.py` | 68-270 |
 | Inflammatory Detector | `backend/purisa/services/inflammatory.py` | 26-182 |
 | Database Models | `backend/purisa/database/models.py` | 17-183 |
+
+### Configuration Parameters (Comment Harvesting)
+
+The relationship between collection parameters and comment harvesting:
+
+```
+limit (API/CLI parameter)
+    │
+    ▼
+┌──────────────────────────────────────┐
+│ Collect N posts from platform        │
+│ (controlled by 'limit' parameter)    │
+└──────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────┐
+│ Filter by engagement score           │
+│ (min_engagement_score threshold)     │
+│                                      │
+│ Example: 100 posts → 40 qualify      │
+└──────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────┐
+│ Cap at max_posts_for_comment_harvest │
+│                                      │
+│ Example: 40 qualifying → 50 cap      │
+│          = 40 selected (no capping)  │
+│                                      │
+│ Example: 60 qualifying → 50 cap      │
+│          = 50 selected (10 skipped)  │
+└──────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────┐
+│ Harvest comments from selected posts │
+│ (max_comments_per_post per post)     │
+└──────────────────────────────────────┘
+```
+
+| Parameter | Default | Location | Purpose |
+|-----------|---------|----------|---------|
+| `limit` | 100 | API/CLI | Max posts to collect initially |
+| `min_engagement_score` | 0.01 | platforms.yaml | Threshold for "top performer" |
+| `max_posts_for_comment_harvest` | 50 | platforms.yaml | Cap on posts to harvest comments from |
+| `max_comments_per_post` | 100 | platforms.yaml | Max comments per top post |
+| `fetch_commenter_profiles` | true | platforms.yaml | Fetch full profiles for commenters |
+
+**Best Practice:** Set `limit >= 2 * max_posts_for_comment_harvest` to ensure enough posts qualify.
 
 ---
 

@@ -292,21 +292,31 @@ class UniversalCollector:
 
         logger.info("Collection cycle completed")
 
-    def _identify_top_performers(self, posts: List[Post]) -> List[Post]:
+    def _identify_top_performers(self, posts: List[Post], return_stats: bool = False):
         """
         Identify top-performing posts based on engagement metrics.
 
         Args:
             posts: List of posts to evaluate
+            return_stats: If True, return (posts, stats_dict) tuple
 
         Returns:
-            List of top-performing posts for comment harvesting
+            List of top-performing posts, or tuple (posts, stats) if return_stats=True
         """
-        if not posts:
-            return []
+        stats = {
+            "posts_collected": len(posts),
+            "posts_qualifying": 0,
+            "posts_capped": 0,
+            "top_performers_selected": 0,
+            "min_engagement_score": self.comment_config.get('min_engagement_score', 0.3),
+            "max_posts_for_comment_harvest": self.comment_config.get('max_posts_for_comment_harvest', 20),
+        }
 
-        min_score = self.comment_config.get('min_engagement_score', 0.3)
-        max_posts = self.comment_config.get('max_posts_for_comment_harvest', 20)
+        if not posts:
+            return ([], stats) if return_stats else []
+
+        min_score = stats["min_engagement_score"]
+        max_posts = stats["max_posts_for_comment_harvest"]
 
         # Calculate engagement scores per platform
         scored_posts = []
@@ -323,15 +333,40 @@ class UniversalCollector:
         # Sort by engagement score (descending)
         scored_posts.sort(key=lambda x: x[1], reverse=True)
 
+        # Update stats
+        total_collected = len(posts)
+        total_qualifying = len(scored_posts)
+        stats["posts_qualifying"] = total_qualifying
+        stats["posts_capped"] = max(0, total_qualifying - max_posts)
+
+        # Warn if very few posts qualify (< 10% of collected)
+        if total_collected > 0 and total_qualifying < total_collected * 0.1:
+            logger.warning(
+                f"Only {total_qualifying}/{total_collected} posts ({100*total_qualifying/total_collected:.1f}%) "
+                f"meet min_engagement_score={min_score}. Consider lowering threshold."
+            )
+
+        # Warn if many posts are being capped
+        if total_qualifying > max_posts:
+            logger.info(
+                f"Capping from {total_qualifying} qualifying posts to max_posts_for_comment_harvest={max_posts}. "
+                f"{total_qualifying - max_posts} posts will not have comments harvested."
+            )
+
         # Take top N posts
         top_posts = [post for post, score in scored_posts[:max_posts]]
+        stats["top_performers_selected"] = len(top_posts)
 
         # Mark as top performers in database
         if top_posts:
             self._mark_top_performers(top_posts, min_score)
 
-        logger.info(f"Identified {len(top_posts)} top-performing posts for comment harvest")
-        return top_posts
+        logger.info(
+            f"Top performers: {len(top_posts)}/{total_collected} posts "
+            f"(qualified: {total_qualifying}, threshold: {min_score}, cap: {max_posts})"
+        )
+
+        return (top_posts, stats) if return_stats else top_posts
 
     def _mark_top_performers(self, posts: List[Post], threshold: float):
         """Mark posts as top performers in database."""

@@ -392,6 +392,7 @@ async def trigger_collection(
             "posts_collected": 0,
             "accounts_discovered": 0,
             "comments_collected": 0,
+            "top_performer_stats": None,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -400,14 +401,18 @@ async def trigger_collection(
             posts = await collector.collect_from_platform(platform, query, limit)
             result["posts_collected"] = len(posts)
 
+            # Store posts and accounts in database
+            await collector.store_posts(posts)
+
             # Count unique accounts
             account_ids = set(p.account_id for p in posts)
             result["accounts_discovered"] = len(account_ids)
 
             # Optionally harvest comments from top performers
             if harvest_comments and posts:
-                # Identify top performers from collected posts
-                top_posts = collector._identify_top_performers(posts)
+                # Identify top performers from collected posts (with stats)
+                top_posts, tp_stats = collector._identify_top_performers(posts, return_stats=True)
+                result["top_performer_stats"] = tp_stats
                 comments_count = 0
                 if top_posts:
                     # Harvest comments from top performers
@@ -420,7 +425,16 @@ async def trigger_collection(
                             PostDB.post_type == 'comment'
                         ).count()
                 result["comments_collected"] = comments_count
-                result["message"] = f"Collected {len(posts)} posts from {len(account_ids)} accounts, harvested {comments_count} comments from {len(top_posts)} top posts"
+
+                # Build message with useful stats
+                msg_parts = [f"Collected {len(posts)} posts from {len(account_ids)} accounts"]
+                if tp_stats["posts_qualifying"] > 0:
+                    msg_parts.append(f"harvested {comments_count} comments from {len(top_posts)} top posts")
+                    if tp_stats["posts_capped"] > 0:
+                        msg_parts.append(f"({tp_stats['posts_capped']} qualifying posts skipped due to cap)")
+                else:
+                    msg_parts.append(f"no posts met engagement threshold ({tp_stats['min_engagement_score']})")
+                result["message"] = ", ".join(msg_parts)
             else:
                 result["message"] = f"Collected {len(posts)} posts from {len(account_ids)} accounts"
         elif platform:

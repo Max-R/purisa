@@ -3,15 +3,28 @@
 
 # Global comment collection settings
 # Identifies top-performing posts and harvests comments for bot detection
+#
+# IMPORTANT: Relationship between 'limit' and these settings:
+# - The 'limit' parameter (in API/CLI) controls how many posts are initially collected
+# - Only posts meeting 'min_engagement_score' qualify as "top performers"
+# - 'max_posts_for_comment_harvest' caps how many top performers get comments harvested
+#
+# Best practices:
+# - Set limit >= 2 * max_posts_for_comment_harvest to ensure enough qualifying posts
+# - If few posts qualify, either: (a) lower min_engagement_score, or (b) increase limit
+# - Watch the top_performer_stats in API responses for tuning guidance
 comment_collection:
   enabled: true
   # Minimum normalized engagement score (0.0-1.0) to be considered a "top performer"
   # For Bluesky: score = (likes + reposts*2 + replies*1.5) / 1000
   # 0.01 = ~10 engagement points (low threshold for testing)
+  # Higher values = fewer but higher-quality posts for comment harvesting
   min_engagement_score: 0.01
   # Maximum comments to collect per post
   max_comments_per_post: 100
   # Maximum posts to harvest comments from per collection cycle
+  # If more posts qualify, only the top N by engagement are selected
+  # Warning logged when qualifying posts exceed this cap
   max_posts_for_comment_harvest: 50
   # Fetch full profile data for commenter accounts (enables full 13-signal analysis)
   # Set to false to speed up collection at cost of incomplete bot detection

@@ -3,7 +3,7 @@
 ## Project Overview
 Multi-platform social media bot detection system. Starting with Bluesky (primary) and Hacker News (secondary), with plans to expand to Mastodon, Twitter/X, and Reddit.
 
-**Current Version**: 0.8.0 (Full Profile Fetch for Commenters)
+**Current Version**: 0.9.0 (CLI Progress Bars + Top Performer Stats)
 
 ## Current Phase: MVP (Phase 1)
 
@@ -144,7 +144,11 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
   - [x] Multi-query support (can specify --query multiple times)
   - [x] Platform-specific collection
   - [x] Batch processing with progress output
+  - [x] Progress bars (tqdm) for queries and comment harvesting
+  - [x] `--harvest-comments / --no-harvest-comments` flag
+  - [x] Top performer stats display (qualifying posts, threshold, capping)
 - [x] analyze command - Bot detection
+  - [x] Progress bar for account analysis
 - [x] flagged command - View flagged accounts
 - [x] stats command - Show statistics
 - [x] Tabulate formatting for output
@@ -452,6 +456,20 @@ None
 **Rationale**: Fetching profiles inline with each comment would be slow and hard to track; batching after all comments stored allows deduplication and progress feedback
 **Impact**: Better UX with progress indicators; efficient deduplication of accounts appearing in multiple comment threads
 
+### 2026-01-26 - Top Performer Stats + CLI Progress Bars
+
+**Decision**: Add detailed stats to top performer identification and return in API response
+**Rationale**: Users need visibility into how limit, min_engagement_score, and max_posts_for_comment_harvest interact; without stats, hard to tune collection parameters
+**Impact**: API returns top_performer_stats object; warnings logged when few posts qualify or many are capped; better tuning guidance
+
+**Decision**: Add tqdm progress bars to CLI collect and analyze commands
+**Rationale**: Long-running operations (comment harvesting, analysis) need visual feedback; tqdm is already installed via dependencies
+**Impact**: Real-time progress for queries, comment harvesting, and account analysis; graceful fallback to text-based progress if tqdm unavailable
+
+**Decision**: Fix missing store_posts() call in collection trigger API
+**Rationale**: Posts were being collected but not stored to database; discovered during testing
+**Impact**: Collection API now properly persists posts to database
+
 ### 2026-01-24 - Enhanced Detection
 
 **Decision**: Add verification status as 8th detection signal (0-1.5 points)
@@ -626,4 +644,4 @@ _Tracked once data collection begins_
 ---
 
 Last Updated: 2026-01-26
-Version: 0.8.0 (Full Profile Fetch for Commenters)
+Version: 0.9.0 (CLI Progress Bars + Top Performer Stats)

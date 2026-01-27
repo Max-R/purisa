@@ -35,7 +35,8 @@ class UniversalCollector:
             'enabled': True,
             'min_engagement_score': 0.3,
             'max_comments_per_post': 100,
-            'max_posts_for_comment_harvest': 20
+            'max_posts_for_comment_harvest': 20,
+            'fetch_commenter_profiles': True
         })
 
     @property
@@ -351,11 +352,14 @@ class UniversalCollector:
         For each top post:
         1. Fetch comments via platform adapter
         2. Store comments (as Posts with parent_id)
-        3. Analyze for inflammatory content
-        4. Flag accounts for analysis if inflammatory detected
+        3. Fetch full profiles for new commenter accounts (batched)
+        4. Analyze for inflammatory content
+        5. Flag accounts for analysis if inflammatory detected
         """
         max_comments = self.comment_config.get('max_comments_per_post', 100)
+        fetch_profiles = self.comment_config.get('fetch_commenter_profiles', True)
         accounts_to_analyze: Set[str] = set()
+        all_new_accounts: List[dict] = []  # Collect new accounts for batch profile fetch
 
         for post in top_posts:
             try:
@@ -369,8 +373,9 @@ class UniversalCollector:
                 if not comments:
                     continue
 
-                # Store comments
-                await self._store_comments(comments, parent_id=post.id)
+                # Store comments and collect new account IDs
+                new_accounts = await self._store_comments(comments, parent_id=post.id)
+                all_new_accounts.extend(new_accounts)
 
                 # Mark post as having comments collected
                 self._mark_comments_collected(post.id)
@@ -386,12 +391,23 @@ class UniversalCollector:
             except Exception as e:
                 logger.error(f"Error harvesting comments for post {post.id}: {e}")
 
+        # Batch fetch profiles for new commenter accounts
+        if fetch_profiles and all_new_accounts:
+            await self._fetch_commenter_profiles_batch(all_new_accounts)
+
         if accounts_to_analyze:
             logger.info(f"Flagged {len(accounts_to_analyze)} accounts with inflammatory comments for analysis")
 
-    async def _store_comments(self, comments: List[Post], parent_id: str):
-        """Store comments in database."""
+    async def _store_comments(self, comments: List[Post], parent_id: str) -> List[dict]:
+        """
+        Store comments in database.
+
+        Returns:
+            List of new account info dicts for batch profile fetching:
+            [{'id': account_id, 'username': handle, 'platform': platform}, ...]
+        """
         db = get_database()
+        new_accounts: List[dict] = []
 
         with db.get_session() as session:
             # Track accounts processed in this batch to avoid duplicate inserts
@@ -405,16 +421,24 @@ class UniversalCollector:
                     ).first()
 
                     if not account_exists:
-                        # Create minimal account entry
+                        # Create minimal account entry (will be updated with full profile later)
+                        username = comment.metadata.get('author_handle', comment.account_id)
                         account_db = AccountDB(
                             id=comment.account_id,
-                            username=comment.metadata.get('author_handle', comment.account_id),
+                            username=username,
                             platform=comment.platform,
                             created_at=datetime.now(),
                             first_seen=datetime.now()
                         )
                         session.merge(account_db)
                         session.flush()  # Ensure account is committed before dependent comment
+
+                        # Track for batch profile fetch
+                        new_accounts.append({
+                            'id': comment.account_id,
+                            'username': username,
+                            'platform': comment.platform
+                        })
 
                     processed_accounts_in_batch.add(comment.account_id)
 
@@ -434,6 +458,60 @@ class UniversalCollector:
                 session.merge(comment_db)
 
             session.commit()
+
+        return new_accounts
+
+    async def _fetch_commenter_profiles_batch(self, new_accounts: List[dict]):
+        """
+        Batch fetch full profiles for new commenter accounts.
+
+        This enables full 13-signal bot detection for commenters by fetching
+        follower counts, profile metadata, verification status, etc.
+
+        Args:
+            new_accounts: List of dicts with 'id', 'username', 'platform' keys
+        """
+        if not new_accounts:
+            return
+
+        # Deduplicate accounts (same account may appear in multiple comment batches)
+        unique_accounts = {acc['id']: acc for acc in new_accounts}
+        accounts_list = list(unique_accounts.values())
+        total = len(accounts_list)
+
+        logger.info(f"Fetching full profiles for {total} new commenter accounts...")
+
+        db = get_database()
+        fetched = 0
+        failed = 0
+
+        for i, acc in enumerate(accounts_list):
+            try:
+                platform = self.platforms.get(acc['platform'])
+                if not platform:
+                    continue
+
+                # Fetch full profile from platform
+                account_info = await platform.get_account_info(acc['username'])
+
+                if account_info:
+                    # Update account in database with full profile
+                    with db.get_session() as session:
+                        self._store_account(session, account_info)
+                        session.commit()
+                    fetched += 1
+                else:
+                    failed += 1
+
+            except Exception as e:
+                logger.debug(f"Failed to fetch profile for {acc['username']}: {e}")
+                failed += 1
+
+            # Progress logging every 10 accounts or at completion
+            if (i + 1) % 10 == 0 or (i + 1) == total:
+                logger.info(f"Profile fetch progress: {i + 1}/{total} ({fetched} fetched, {failed} failed)")
+
+        logger.info(f"Completed profile fetch: {fetched} profiles updated, {failed} failed out of {total}")
 
     def _mark_comments_collected(self, post_id: str):
         """Mark a post as having its comments collected."""

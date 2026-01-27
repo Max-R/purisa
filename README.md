@@ -186,10 +186,13 @@ These signals specifically target "amplification parasites" - bots that operate 
 
 **How Comment Detection Works:**
 
-1. **Identify Top Performers**: During collection, posts with high engagement scores (≥0.3 normalized) are flagged
+1. **Identify Top Performers**: During collection, posts with high engagement scores (≥0.01 normalized) are flagged
 2. **Harvest Comments**: Comments are collected from top-performing posts
-3. **Detect Inflammatory Content**: ML-based toxicity detection (Detoxify) analyzes comment text
-4. **Flag Accounts**: Accounts posting inflammatory comments are queued for full bot analysis
+3. **Fetch Commenter Profiles**: Full profiles are fetched for new commenter accounts (batched, with progress logging)
+4. **Detect Inflammatory Content**: ML-based toxicity detection (Detoxify) analyzes comment text
+5. **Flag Accounts**: Accounts posting inflammatory comments are queued for full bot analysis
+
+**Note:** Full profile fetching for commenters enables all 13 detection signals. Without profiles, only the 5 comment-based signals would apply. This can be disabled via `fetch_commenter_profiles: false` in `platforms.yaml` for faster collection.
 
 ---
 
@@ -639,12 +642,13 @@ purisa stats
 Open http://localhost:3000 in your browser to see:
 - **Collection Panel**: Run data collection directly from the UI
   - Select platform (Bluesky or Hacker News)
-  - Enter search query (hashtags, keywords, or story types)
+  - Multi-query support: add multiple queries as chips, collect from all in one click
   - Configure post limit (50-5000)
   - Toggle comment harvesting from top-performing posts
   - Run "Collect Only", "Analyze Only", or "Collect & Analyze" in one click
 - **Stats Cards**: 7 cards showing accounts, posts, flagged accounts, flag rate, plus comment statistics (total comments, inflammatory flags, average severity)
 - **Accounts Table**: Bot scores, signals, and account details with tabs for All/Flagged
+  - **Comment stats column**: Shows comment count with inflammatory indicators per account
 - **Platform Filter**: View data from specific platforms
 - **Refresh Button**: Update data in real-time
 - **Dark Mode Toggle**: Switch between light and dark themes (respects system preference)
@@ -697,7 +701,8 @@ purisa stats                                     # Show statistics
 - `GET /api/platforms/status` - Available platforms
 
 ### Accounts
-- `GET /api/accounts/flagged?platform={platform}&limit=50` - Get flagged accounts
+- `GET /api/accounts/all?platform={platform}&limit=50&include_comment_stats=true` - Get all accounts with optional comment stats
+- `GET /api/accounts/flagged?platform={platform}&limit=50&include_comment_stats=true` - Get flagged accounts with optional comment stats
 - `GET /api/accounts/{platform}/{account_id}` - Account details
 
 ### Posts
@@ -750,9 +755,10 @@ hackernews:
 # Comment harvesting settings
 comment_collection:
   enabled: true
-  min_engagement_score: 0.3  # Minimum normalized score for "top performer"
+  min_engagement_score: 0.01  # Minimum normalized score for "top performer"
   max_comments_per_post: 100
-  max_posts_for_comment_harvest: 20
+  max_posts_for_comment_harvest: 50
+  fetch_commenter_profiles: true  # Fetch full profiles for commenters (enables all 13 signals)
 ```
 
 ### Detection Thresholds
@@ -773,7 +779,7 @@ INFLAMMATORY_DEVICE=cpu              # 'cpu' or 'cuda' for GPU
 COMMENT_COLLECTION_ENABLED=true
 COMMENT_MIN_ENGAGEMENT_SCORE=0.3
 COMMENT_MAX_PER_POST=100
-COMMENT_MAX_POSTS_PER_CYCLE=20
+COMMENT_MAX_POSTS_PER_CYCLE=50
 ```
 
 ## Development

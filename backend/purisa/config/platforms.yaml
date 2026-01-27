@@ -13,6 +13,9 @@ comment_collection:
   max_comments_per_post: 100
   # Maximum posts to harvest comments from per collection cycle
   max_posts_for_comment_harvest: 50
+  # Fetch full profile data for commenter accounts (enables full 13-signal analysis)
+  # Set to false to speed up collection at cost of incomplete bot detection
+  fetch_commenter_profiles: true
 
 bluesky:
   enabled: true

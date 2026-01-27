@@ -37,6 +37,7 @@ flowchart TD
     subgraph Comments["5. COMMENT HARVESTING"]
         FETCH_COMMENTS["platform.get_post_comments()"]
         STORE_COMMENTS["Store comments in PostDB<br/>post_type='comment', parent_id=post.id"]
+        FETCH_PROFILES["Batch fetch full profiles<br/>for new commenter accounts"]
         MARK_COLLECTED["Mark PostDB.comments_collected = 1"]
     end
 
@@ -56,7 +57,7 @@ flowchart TD
     PLAT --> FETCH --> TRANSFORM
     TRANSFORM --> STORE_POST --> STORE_ACCT
     STORE_ACCT --> CALC_ENG --> FILTER --> MARK
-    MARK --> FETCH_COMMENTS --> STORE_COMMENTS --> MARK_COLLECTED
+    MARK --> FETCH_COMMENTS --> STORE_COMMENTS --> FETCH_PROFILES --> MARK_COLLECTED
     MARK_COLLECTED --> DETOXIFY --> FLAG --> QUEUE
     QUEUE --> RESULT
 ```
@@ -66,7 +67,8 @@ flowchart TD
 | Component | File | Lines |
 |-----------|------|-------|
 | API Endpoint | `backend/purisa/api/routes.py` | 372-441 |
-| Collector Service | `backend/purisa/services/collector.py` | 23-501 |
+| Collector Service | `backend/purisa/services/collector.py` | 23-560 |
+| Batch Profile Fetch | `backend/purisa/services/collector.py` | 464-511 |
 | Bluesky Adapter | `backend/purisa/platforms/bluesky.py` | 68-270 |
 | Inflammatory Detector | `backend/purisa/services/inflammatory.py` | 26-182 |
 | Database Models | `backend/purisa/database/models.py` | 17-183 |

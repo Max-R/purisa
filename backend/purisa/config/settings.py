@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     comment_collection_enabled: bool = True
     comment_min_engagement_score: float = 0.3
     comment_max_per_post: int = 100
-    comment_max_posts_per_cycle: int = 20
+    comment_max_posts_per_cycle: int = 50
 
     # Inflammatory detection settings (Detoxify)
     inflammatory_model: str = "original-small"  # 'original-small', 'original', or 'unbiased'

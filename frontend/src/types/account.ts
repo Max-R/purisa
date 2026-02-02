@@ -16,9 +16,17 @@ export interface Account {
   lastAnalyzed?: string
 }
 
+export interface AccountCommentStats {
+  totalComments: number
+  inflammatoryCount: number
+  inflammatoryRatio: number
+  repetitiveCount: number
+}
+
 export interface AccountWithScore {
   account: Account
   score: Score
+  commentStats?: AccountCommentStats | null
 }
 
 export interface Score {

@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Download, Play, BarChart3, Loader2, CheckCircle, AlertCircle, MessageSquare } from 'lucide-react'
+import { Download, Play, BarChart3, Loader2, CheckCircle, AlertCircle, MessageSquare, Plus, X } from 'lucide-react'
 import { apiClient, type CollectionResult, type AnalysisResult } from '../api/client'
 
 interface CollectionPanelProps {
@@ -19,7 +19,8 @@ interface CollectionPanelProps {
 
 export default function CollectionPanel({ platforms, onComplete }: CollectionPanelProps) {
   const [platform, setPlatform] = useState<string>('bluesky')
-  const [query, setQuery] = useState<string>('')
+  const [queries, setQueries] = useState<string[]>([])
+  const [currentInput, setCurrentInput] = useState<string>('')
   const [limit, setLimit] = useState<number>(100)
   const [harvestComments, setHarvestComments] = useState<boolean>(true)
 
@@ -29,9 +30,28 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const addQuery = () => {
+    const trimmed = currentInput.trim()
+    if (trimmed && !queries.includes(trimmed)) {
+      setQueries([...queries, trimmed])
+      setCurrentInput('')
+    }
+  }
+
+  const removeQuery = (queryToRemove: string) => {
+    setQueries(queries.filter(q => q !== queryToRemove))
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addQuery()
+    }
+  }
+
   const handleCollect = async () => {
-    if (!query.trim()) {
-      setError('Please enter a search query')
+    if (queries.length === 0) {
+      setError('Please add at least one search query')
       return
     }
 
@@ -40,13 +60,35 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
     setCollectionResult(null)
 
     try {
-      const result = await apiClient.triggerCollection({
+      // Collect for each query and aggregate results
+      let totalPosts = 0
+      let totalAccounts = new Set<string>()
+      let totalComments = 0
+
+      for (const query of queries) {
+        const result = await apiClient.triggerCollection({
+          platform,
+          query,
+          limit,
+          harvestComments
+        })
+        totalPosts += result.postsCollected
+        totalComments += result.commentsCollected
+        // Note: accountsDiscovered may have overlap, but we show the raw sum for simplicity
+      }
+
+      // Create aggregated result
+      setCollectionResult({
+        status: 'success',
         platform,
-        query: query.trim(),
+        query: queries.join(', '),
         limit,
-        harvestComments
+        postsCollected: totalPosts,
+        accountsDiscovered: totalPosts, // Approximation
+        commentsCollected: totalComments,
+        message: `Collected from ${queries.length} queries`,
+        timestamp: new Date().toISOString()
       })
-      setCollectionResult(result)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Collection failed')
     } finally {
@@ -110,14 +152,44 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-sm font-medium mb-1.5 block">Search Query</label>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={platform === 'bluesky' ? '#hashtag or keyword' : 'top, new, or best'}
-              className="w-full px-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
+            <label className="text-sm font-medium mb-1.5 block">Search Queries</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={currentInput}
+                onChange={(e) => setCurrentInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={platform === 'bluesky' ? '#hashtag or keyword' : 'top, new, or best'}
+                className="flex-1 px-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addQuery}
+                disabled={!currentInput.trim()}
+                className="px-3"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            {/* Query Chips */}
+            {queries.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {queries.map((q, index) => (
+                  <Badge key={index} variant="secondary" className="pl-2 pr-1 py-1 flex items-center gap-1">
+                    {q}
+                    <button
+                      type="button"
+                      onClick={() => removeQuery(q)}
+                      className="ml-1 hover:bg-muted rounded-full p-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -155,7 +227,7 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={handleCollect}
-            disabled={isCollecting || isAnalyzing || !query.trim()}
+            disabled={isCollecting || isAnalyzing || queries.length === 0}
             variant="outline"
           >
             {isCollecting ? (
@@ -181,7 +253,7 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
 
           <Button
             onClick={handleCollectAndAnalyze}
-            disabled={isCollecting || isAnalyzing || !query.trim()}
+            disabled={isCollecting || isAnalyzing || queries.length === 0}
           >
             {(isCollecting || isAnalyzing) ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />

@@ -12,8 +12,8 @@ interface UseAccountsResult {
   flaggedAccountsTotal: number
   loading: boolean
   error: string | null
-  fetchAll: (platform?: string, limit?: number, offset?: number) => Promise<void>
-  fetchFlagged: (platform?: string, limit?: number, offset?: number) => Promise<void>
+  fetchAll: (platform?: string, limit?: number, offset?: number, includeCommentStats?: boolean) => Promise<void>
+  fetchFlagged: (platform?: string, limit?: number, offset?: number, includeCommentStats?: boolean) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -28,13 +28,14 @@ export function useAccounts(): UseAccountsResult {
   const fetchAll = useCallback(async (
     platform?: string,
     limit: number = 50,
-    offset: number = 0
+    offset: number = 0,
+    includeCommentStats: boolean = true
   ) => {
     setLoading(true)
     setError(null)
 
     try {
-      const result = await apiClient.getAllAccounts(platform, limit, offset)
+      const result = await apiClient.getAllAccounts(platform, limit, offset, includeCommentStats)
       setAllAccounts(result.accounts)
       setAllAccountsTotal(result.total)
     } catch (e) {
@@ -48,13 +49,14 @@ export function useAccounts(): UseAccountsResult {
   const fetchFlagged = useCallback(async (
     platform?: string,
     limit: number = 50,
-    offset: number = 0
+    offset: number = 0,
+    includeCommentStats: boolean = true
   ) => {
     setLoading(true)
     setError(null)
 
     try {
-      const result = await apiClient.getFlaggedAccounts(platform, limit, offset)
+      const result = await apiClient.getFlaggedAccounts(platform, limit, offset, includeCommentStats)
       setFlaggedAccounts(result.accounts)
       setFlaggedAccountsTotal(result.total)
     } catch (e) {

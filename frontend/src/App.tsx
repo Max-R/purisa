@@ -214,6 +214,7 @@ export default function App() {
                 accounts={displayedAccounts}
                 loading={accountsLoading}
                 error={accountsError}
+                showCommentStats={true}
               />
             </CardContent>
 

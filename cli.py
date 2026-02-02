@@ -13,9 +13,15 @@ from pathlib import Path
 import tabulate as tabulate_module
 from datetime import datetime, timedelta
 
-# Add backend to path
+# Add backend to path and load environment
 backend_path = Path(__file__).parent / 'backend'
 sys.path.insert(0, str(backend_path))
+
+# Load environment variables from backend/.env
+from dotenv import load_dotenv
+env_file = backend_path / '.env'
+if env_file.exists():
+    load_dotenv(env_file)
 
 from purisa.database.connection import init_database, get_database
 from purisa.database.models import AccountDB, PostDB

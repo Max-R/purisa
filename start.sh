@@ -5,7 +5,7 @@
 
 set -e  # Exit on error
 
-echo "Starting Purisa Bot Detection System..."
+echo "Starting Purisa Coordination Detection System..."
 echo ""
 
 # Colors for output

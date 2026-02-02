@@ -149,14 +149,20 @@ class CoordinationAnalyzer:
 
             if len(posts) < self.config.min_cluster_size:
                 logger.info(f"Not enough posts ({len(posts)}) for analysis")
-                return self._empty_result(platform, hour_start, hour_end)
+                result = self._empty_result(platform, hour_start, hour_end, len(posts))
+                # Still store the metric for historical tracking
+                self._store_results(session, result)
+                return result
 
             # Build similarity network
             graph = self._build_network(posts)
 
             if graph.number_of_edges() == 0:
                 logger.info("No edges detected in network")
-                return self._empty_result(platform, hour_start, hour_end)
+                result = self._empty_result(platform, hour_start, hour_end, len(posts))
+                # Still store the metric for historical tracking
+                self._store_results(session, result)
+                return result
 
             # Detect clusters
             clusters = self._detect_clusters(graph)
@@ -675,7 +681,8 @@ class CoordinationAnalyzer:
         self,
         platform: str,
         start: datetime,
-        end: datetime
+        end: datetime,
+        post_count: int = 0
     ) -> CoordinationResult:
         """Return an empty result for when there's insufficient data."""
         return CoordinationResult(
@@ -683,9 +690,9 @@ class CoordinationAnalyzer:
             time_window_start=start,
             time_window_end=end,
             coordination_score=0.0,
-            total_posts=0,
+            total_posts=post_count,  # Track actual post count even if no coordination
             coordinated_posts=0,
-            organic_posts=0,
+            organic_posts=post_count,  # All posts are organic if no coordination
             clusters=[],
             edge_count=0,
             sync_rate=0.0,

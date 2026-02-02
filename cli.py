@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Purisa CLI Tool
+Purisa CLI Tool (2.0)
 
-Command-line interface for Purisa bot detection system.
+Command-line interface for Purisa coordination detection system.
+Detects coordinated inauthentic behavior patterns in social media.
 """
 import asyncio
 import click
@@ -10,16 +11,23 @@ import sys
 import os
 from pathlib import Path
 import tabulate as tabulate_module
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# Add backend to path
+# Add backend to path and load environment
 backend_path = Path(__file__).parent / 'backend'
 sys.path.insert(0, str(backend_path))
 
+# Load environment variables from backend/.env
+from dotenv import load_dotenv
+env_file = backend_path / '.env'
+if env_file.exists():
+    load_dotenv(env_file)
+
 from purisa.database.connection import init_database, get_database
-from purisa.database.models import AccountDB, PostDB, ScoreDB, FlagDB
+from purisa.database.models import AccountDB, PostDB
+from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB
 from purisa.services.collector import UniversalCollector
-from purisa.services.analyzer import BotDetector
+from purisa.services.coordination import CoordinationAnalyzer
 from purisa.config.settings import get_settings
 
 # Progress bar support
@@ -32,7 +40,7 @@ except ImportError:
 
 @click.group()
 def cli():
-    """Purisa - Multi-platform social media bot detection system."""
+    """Purisa 2.0 - Coordination detection for social media platforms."""
     # Initialize database
     settings = get_settings()
     init_database(settings.database_url)
@@ -118,118 +126,145 @@ def collect(platform, query, limit, harvest_comments):
 
 
 @cli.command()
-@click.option('--account', type=str, help='Specific account ID to analyze')
-@click.option('--platform', type=str, help='Analyze all accounts from platform')
-def analyze(account, platform):
-    """Analyze accounts for bot-like behavior."""
-    analyzer = BotDetector()
+@click.option('--platform', type=str, required=True, help='Platform to analyze (bluesky, hackernews)')
+@click.option('--hours', type=int, default=24, help='Hours to analyze (default: 24)')
+@click.option('--start', type=str, help='Start datetime (ISO format, e.g., 2024-01-15T00:00:00)')
+def analyze(platform, hours, start):
+    """Run coordination analysis on collected data.
 
-    if account:
-        # Analyze specific account
-        click.echo(f"Analyzing account: {account}")
-        score = analyzer.analyze_account(account)
+    Analyzes posts for coordinated behavior patterns including:
+    - Synchronized posting (posts within 90 seconds)
+    - URL sharing (same links posted by different accounts)
+    - Text similarity (similar content using TF-IDF)
+    - Reply patterns (accounts commenting on same posts)
 
-        if score:
-            click.echo(f"\nBot Detection Score: {score.total_score:.2f}/10.0")
-            click.echo(f"Flagged: {'YES' if score.flagged else 'NO'}")
-            click.echo(f"\nSignal Breakdown:")
+    Results are stored in the database and can be viewed with 'spikes' command.
+    """
+    analyzer = CoordinationAnalyzer()
 
-            table_data = [[signal, f"{value:.2f}"] for signal, value in score.signals.items()]
-            click.echo(tabulate_module.tabulate(table_data, headers=['Signal', 'Score'], tablefmt='simple'))
-        else:
-            click.echo("✗ Account not found")
-    else:
-        # Analyze all accounts with progress bar
-        click.echo(f"Analyzing all accounts{f' from {platform}' if platform else ''}...")
-
-        # Get account count first for progress bar
-        db = get_database()
-        with db.get_session() as session:
-            query = session.query(AccountDB)
-            if platform:
-                query = query.filter_by(platform=platform)
-            account_ids = [a.id for a in query.all()]
-
-        if not account_ids:
-            click.echo("No accounts to analyze")
+    # Determine time range
+    if start:
+        try:
+            start_time = datetime.fromisoformat(start)
+        except ValueError:
+            click.echo("Error: Invalid start datetime format. Use ISO format (e.g., 2024-01-15T00:00:00)")
             return
+        end_time = start_time + timedelta(hours=hours)
+    else:
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=hours)
 
-        scores = []
-        flagged_count = 0
+    click.echo(f"\n=== Coordination Analysis ===")
+    click.echo(f"Platform: {platform}")
+    click.echo(f"Time range: {start_time.strftime('%Y-%m-%d %H:%M')} to {end_time.strftime('%Y-%m-%d %H:%M')}")
+    click.echo(f"Hours to analyze: {hours}\n")
 
-        # Progress bar for analysis
-        if TQDM_AVAILABLE:
-            pbar = tqdm(account_ids, desc="Analyzing", unit="account")
-            for account_id in pbar:
-                score = analyzer.analyze_account(account_id)
-                if score:
-                    scores.append(score)
-                    if score.flagged:
-                        flagged_count += 1
-                    pbar.set_postfix(flagged=flagged_count)
-            pbar.close()
-        else:
-            total = len(account_ids)
-            for i, account_id in enumerate(account_ids):
-                score = analyzer.analyze_account(account_id)
-                if score:
-                    scores.append(score)
-                    if score.flagged:
-                        flagged_count += 1
-                if (i + 1) % 20 == 0 or (i + 1) == total:
-                    click.echo(f"  Progress: {i + 1}/{total} accounts, {flagged_count} flagged")
+    # Calculate total hours for progress bar
+    total_hours = int((end_time - start_time).total_seconds() / 3600)
 
-        click.echo(f"\n✓ Analyzed {len(scores)} accounts")
-        click.echo(f"  Flagged: {flagged_count}")
-        click.echo(f"  Clean: {len(scores) - flagged_count}")
+    if TQDM_AVAILABLE:
+        pbar = tqdm(total=total_hours, desc="Analyzing", unit="hour")
+
+    current = start_time.replace(minute=0, second=0, microsecond=0)
+    results = []
+    total_clusters = 0
+    total_coordinated = 0
+    max_score = 0.0
+
+    db = get_database()
+    with db.get_session() as session:
+        while current < end_time:
+            result = analyzer.analyze_hour(platform, current, session)
+            results.append(result)
+
+            total_clusters += len(result.clusters)
+            total_coordinated += result.coordinated_posts
+            max_score = max(max_score, result.coordination_score)
+
+            if TQDM_AVAILABLE:
+                pbar.update(1)
+                pbar.set_postfix(
+                    score=f"{result.coordination_score:.1f}",
+                    clusters=len(result.clusters)
+                )
+            else:
+                if result.coordination_score > 0:
+                    click.echo(f"  {current.strftime('%Y-%m-%d %H:%M')}: "
+                              f"score={result.coordination_score:.1f}, "
+                              f"clusters={len(result.clusters)}, "
+                              f"posts={result.total_posts}")
+
+            current += timedelta(hours=1)
+
+    if TQDM_AVAILABLE:
+        pbar.close()
+
+    # Summary
+    total_posts = sum(r.total_posts for r in results)
+    avg_score = sum(r.coordination_score for r in results) / len(results) if results else 0
+
+    click.echo(f"\n=== Analysis Summary ===")
+    click.echo(f"Hours analyzed: {len(results)}")
+    click.echo(f"Total posts: {total_posts}")
+    click.echo(f"Coordinated posts: {total_coordinated}")
+    click.echo(f"Clusters detected: {total_clusters}")
+    click.echo(f"Average coordination score: {avg_score:.1f}/100")
+    click.echo(f"Peak coordination score: {max_score:.1f}/100")
+
+    # Show hours with high coordination
+    high_coord = [r for r in results if r.coordination_score >= 20]
+    if high_coord:
+        click.echo(f"\n=== High Coordination Hours ({len(high_coord)}) ===")
+        for r in sorted(high_coord, key=lambda x: x.coordination_score, reverse=True)[:5]:
+            click.echo(f"  {r.time_window_start.strftime('%Y-%m-%d %H:%M')}: "
+                      f"score={r.coordination_score:.1f}, clusters={len(r.clusters)}")
 
 
 @cli.command()
-@click.option('--platform', type=str, help='Filter by platform')
-@click.option('--all', 'show_all', is_flag=True, help='Show all flagged accounts')
-def flagged(platform, show_all):
-    """Show flagged accounts."""
-    db = get_database()
+@click.option('--platform', type=str, required=True, help='Platform to check (bluesky, hackernews)')
+@click.option('--hours', type=int, default=168, help='Hours to look back (default: 168 = 7 days)')
+@click.option('--threshold', type=float, default=2.0, help='Standard deviations above mean (default: 2.0)')
+def spikes(platform, hours, threshold):
+    """Show coordination spikes above baseline.
 
-    with db.get_session() as session:
-        # Get flagged scores
-        query = session.query(ScoreDB).filter_by(flagged=1)
-        scores = query.all()
+    Identifies hours where coordination activity is significantly above
+    the normal baseline (measured in standard deviations).
+    """
+    analyzer = CoordinationAnalyzer()
 
-        if not scores:
-            click.echo("No flagged accounts found")
-            return
+    click.echo(f"\n=== Coordination Spikes ===")
+    click.echo(f"Platform: {platform}")
+    click.echo(f"Looking back: {hours} hours ({hours // 24} days)")
+    click.echo(f"Threshold: {threshold} standard deviations\n")
 
-        # Get account details
-        results = []
-        for score in scores:
-            account = session.query(AccountDB).filter_by(id=score.account_id).first()
-            if account:
-                # Apply platform filter
-                if platform and account.platform != platform:
-                    continue
+    spike_list = analyzer.get_spikes(platform, hours, threshold)
 
-                results.append([
-                    account.username[:30],
-                    account.platform,
-                    f"{score.total_score:.1f}",
-                    account.post_count,
-                    account.follower_count
-                ])
+    if not spike_list:
+        click.echo("No coordination spikes detected in this time range.")
+        click.echo("\nTip: Try running 'purisa analyze' first to generate coordination metrics.")
+        return
 
-        if results:
-            click.echo(f"\nFlagged Accounts ({len(results)} total):\n")
-            headers = ['Username', 'Platform', 'Score', 'Posts', 'Followers']
+    # Display spikes
+    table_data = []
+    for spike in spike_list[:20]:
+        table_data.append([
+            spike['time_bucket'][:16],  # Truncate to datetime
+            f"{spike['coordination_score']:.1f}",
+            f"{spike['z_score']:.2f}σ",
+            spike['cluster_count'],
+            spike['total_posts'],
+        ])
 
-            if show_all:
-                click.echo(tabulate_module.tabulate(results, headers=headers, tablefmt='grid'))
-            else:
-                # Show first 20
-                click.echo(tabulate_module.tabulate(results[:20], headers=headers, tablefmt='grid'))
-                if len(results) > 20:
-                    click.echo(f"\n... and {len(results) - 20} more (use --all to see all)")
-        else:
-            click.echo("No flagged accounts found matching filters")
+    headers = ['Time', 'Score', 'Magnitude', 'Clusters', 'Posts']
+    click.echo(tabulate_module.tabulate(table_data, headers=headers, tablefmt='grid'))
+
+    if len(spike_list) > 20:
+        click.echo(f"\n... and {len(spike_list) - 20} more spikes")
+
+    # Show baseline info
+    if spike_list:
+        click.echo(f"\nBaseline: mean={spike_list[0]['baseline_mean']:.1f}, "
+                  f"std={spike_list[0]['baseline_std']:.1f}")
 
 
 @cli.command()
@@ -249,7 +284,6 @@ def stats(platform):
 
         total_accounts = accounts_query.count()
         total_posts = posts_query.count()
-        flagged_accounts = session.query(ScoreDB).filter_by(flagged=1).count()
 
         # Platform breakdown
         platform_stats = []
@@ -258,15 +292,20 @@ def stats(platform):
             post_count = session.query(PostDB).filter_by(platform=plat).count()
             platform_stats.append([plat, acc_count, post_count])
 
+        # Coordination metrics (last 24 hours)
+        cutoff = datetime.now() - timedelta(hours=24)
+        recent_metrics = session.query(CoordinationMetricDB).filter(
+            CoordinationMetricDB.time_bucket >= cutoff
+        ).all()
+
+        total_clusters = session.query(CoordinationClusterDB).count()
+        recent_clusters = sum(m.active_cluster_count for m in recent_metrics)
+
         # Display stats
-        click.echo("\n=== Purisa Statistics ===\n")
+        click.echo("\n=== Purisa 2.0 Statistics ===\n")
         click.echo(f"Total Accounts: {total_accounts}")
         click.echo(f"Total Posts: {total_posts}")
-        click.echo(f"Flagged Accounts: {flagged_accounts}")
-
-        if total_accounts > 0:
-            flag_rate = (flagged_accounts / total_accounts) * 100
-            click.echo(f"Flag Rate: {flag_rate:.1f}%")
+        click.echo(f"Total Clusters Detected: {total_clusters}")
 
         click.echo("\n=== Platform Breakdown ===\n")
         click.echo(tabulate_module.tabulate(
@@ -275,18 +314,35 @@ def stats(platform):
             tablefmt='grid'
         ))
 
+        # Coordination summary (last 24h)
+        if recent_metrics:
+            avg_score = sum(m.coordination_score for m in recent_metrics) / len(recent_metrics)
+            max_score = max(m.coordination_score for m in recent_metrics)
+            total_coordinated = sum(m.coordinated_posts_count for m in recent_metrics)
+
+            click.echo("\n=== Coordination (Last 24 Hours) ===\n")
+            click.echo(f"Hours analyzed: {len(recent_metrics)}")
+            click.echo(f"Average coordination score: {avg_score:.1f}/100")
+            click.echo(f"Peak coordination score: {max_score:.1f}/100")
+            click.echo(f"Coordinated posts detected: {total_coordinated}")
+            click.echo(f"Active clusters: {recent_clusters}")
+        else:
+            click.echo("\n=== Coordination ===\n")
+            click.echo("No coordination analysis run yet.")
+            click.echo("Run 'purisa analyze --platform <platform>' to start.")
+
 
 @cli.command()
 def init():
     """Initialize database and verify setup."""
-    click.echo("Initializing Purisa...")
+    click.echo("Initializing Purisa 2.0...")
 
     settings = get_settings()
     click.echo(f"Database URL: {settings.database_url}")
 
     # Initialize database
     db = init_database(settings.database_url)
-    click.echo("✓ Database initialized")
+    click.echo("✓ Database initialized (including coordination tables)")
 
     # Check platform configuration
     collector = UniversalCollector()
@@ -300,11 +356,12 @@ def init():
         click.echo("  - BLUESKY_HANDLE")
         click.echo("  - BLUESKY_PASSWORD")
 
-    click.echo("\n✓ Purisa is ready to use!")
-    click.echo("\nNext steps:")
-    click.echo("  1. Run 'python cli.py collect' to start collecting data")
-    click.echo("  2. Run 'python cli.py analyze' to detect bots")
-    click.echo("  3. Run 'python cli.py flagged' to see flagged accounts")
+    click.echo("\n✓ Purisa 2.0 is ready to use!")
+    click.echo("\nWorkflow:")
+    click.echo("  1. Run 'purisa collect --platform bluesky --query \"#topic\"' to collect posts")
+    click.echo("  2. Run 'purisa analyze --platform bluesky' to detect coordination")
+    click.echo("  3. Run 'purisa spikes --platform bluesky' to see coordination spikes")
+    click.echo("  4. Run 'purisa stats' to see overall statistics")
 
 
 if __name__ == '__main__':

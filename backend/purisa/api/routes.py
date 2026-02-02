@@ -1,16 +1,18 @@
 """FastAPI routes and endpoints."""
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import func
 import logging
 from purisa.database.connection import get_database
 from purisa.database.models import AccountDB, PostDB, FlagDB, ScoreDB, InflammatoryFlagDB, CommentStatsDB
+from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB, ClusterMemberDB
 from purisa.models.account import Account
 from purisa.models.post import Post
 from purisa.models.detection import Flag, Score
 from purisa.services.collector import UniversalCollector
 from purisa.services.analyzer import BotDetector
+from purisa.services.coordination import CoordinationAnalyzer
 from purisa.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -866,4 +868,273 @@ async def get_comment_stats_overview(platform: Optional[str] = Query(None)):
 
     except Exception as e:
         logger.error(f"Error getting comment stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Coordination Detection Endpoints (Purisa 2.0)
+# ============================================================================
+
+@router.get("/coordination/metrics")
+async def get_coordination_metrics(
+    platform: str = Query(..., description="Platform to query"),
+    hours: int = Query(24, ge=1, le=720, description="Hours to look back"),
+    bucket_type: str = Query("hourly", description="Bucket type: 'hourly' or 'daily'")
+):
+    """Get coordination metrics for a time range."""
+    try:
+        analyzer = CoordinationAnalyzer()
+        metrics = analyzer.get_recent_metrics(platform, hours)
+
+        return {
+            "platform": platform,
+            "hours": hours,
+            "bucket_type": bucket_type,
+            "metrics": metrics,
+            "total": len(metrics)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting coordination metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/coordination/spikes")
+async def get_coordination_spikes(
+    platform: str = Query(..., description="Platform to query"),
+    hours: int = Query(168, ge=1, le=720, description="Hours to look back (default: 7 days)"),
+    threshold: float = Query(2.0, ge=0.5, le=5.0, description="Standard deviations threshold")
+):
+    """Get coordination spikes above baseline."""
+    try:
+        analyzer = CoordinationAnalyzer()
+        spikes = analyzer.get_spikes(platform, hours, threshold)
+
+        return {
+            "platform": platform,
+            "hours": hours,
+            "threshold_std": threshold,
+            "spikes": spikes,
+            "total": len(spikes)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting coordination spikes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/coordination/timeline")
+async def get_coordination_timeline(
+    platform: str = Query(..., description="Platform to query"),
+    hours: int = Query(168, ge=1, le=720, description="Hours to look back (default: 7 days)")
+):
+    """Get coordination score timeline for visualization."""
+    try:
+        db = get_database()
+        cutoff = datetime.now() - timedelta(hours=hours)
+
+        with db.get_session() as session:
+            metrics = session.query(CoordinationMetricDB).filter(
+                CoordinationMetricDB.platform == platform,
+                CoordinationMetricDB.time_bucket >= cutoff,
+                CoordinationMetricDB.bucket_type == 'hourly'
+            ).order_by(CoordinationMetricDB.time_bucket.asc()).all()
+
+            timeline = [{
+                "time": m.time_bucket.isoformat(),
+                "score": m.coordination_score,
+                "posts": m.total_posts_analyzed,
+                "coordinated": m.coordinated_posts_count,
+                "clusters": m.active_cluster_count,
+                "sync_rate": m.synchronized_posting_rate,
+            } for m in metrics]
+
+            # Calculate summary stats
+            scores = [m.coordination_score for m in metrics]
+            avg_score = sum(scores) / len(scores) if scores else 0
+            max_score = max(scores) if scores else 0
+
+            return {
+                "platform": platform,
+                "hours": hours,
+                "timeline": timeline,
+                "summary": {
+                    "data_points": len(timeline),
+                    "average_score": round(avg_score, 2),
+                    "peak_score": round(max_score, 2),
+                    "total_posts_analyzed": sum(m.total_posts_analyzed for m in metrics),
+                    "total_coordinated": sum(m.coordinated_posts_count for m in metrics),
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting coordination timeline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/coordination/clusters")
+async def get_coordination_clusters(
+    platform: str = Query(..., description="Platform to query"),
+    hours: int = Query(24, ge=1, le=168, description="Hours to look back"),
+    min_size: int = Query(3, ge=2, description="Minimum cluster size"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum clusters to return")
+):
+    """Get detected coordination clusters."""
+    try:
+        db = get_database()
+        cutoff = datetime.now() - timedelta(hours=hours)
+
+        with db.get_session() as session:
+            clusters = session.query(CoordinationClusterDB).filter(
+                CoordinationClusterDB.platform == platform,
+                CoordinationClusterDB.detected_at >= cutoff,
+                CoordinationClusterDB.member_count >= min_size
+            ).order_by(
+                CoordinationClusterDB.coordination_score.desc()
+            ).limit(limit).all()
+
+            results = []
+            for cluster in clusters:
+                # Get cluster members
+                members = session.query(ClusterMemberDB).filter_by(
+                    cluster_id=cluster.cluster_id
+                ).order_by(ClusterMemberDB.centrality_score.desc()).all()
+
+                results.append({
+                    "cluster_id": cluster.cluster_id,
+                    "detected_at": cluster.detected_at.isoformat() if cluster.detected_at else None,
+                    "time_window": {
+                        "start": cluster.time_window_start.isoformat() if cluster.time_window_start else None,
+                        "end": cluster.time_window_end.isoformat() if cluster.time_window_end else None,
+                    },
+                    "member_count": cluster.member_count,
+                    "density": cluster.density_score,
+                    "cluster_type": cluster.cluster_type,
+                    "coordination_score": cluster.coordination_score,
+                    "members": [{
+                        "account_id": m.account_id,
+                        "centrality": m.centrality_score,
+                    } for m in members[:10]]  # Top 10 members by centrality
+                })
+
+            return {
+                "platform": platform,
+                "hours": hours,
+                "clusters": results,
+                "total": len(results)
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting coordination clusters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/coordination/analyze")
+async def trigger_coordination_analysis(
+    platform: str = Query(..., description="Platform to analyze"),
+    hours: int = Query(24, ge=1, le=168, description="Hours to analyze"),
+    start: Optional[str] = Query(None, description="Start datetime (ISO format)")
+):
+    """Trigger coordination analysis for a time range."""
+    try:
+        analyzer = CoordinationAnalyzer()
+
+        # Determine time range
+        if start:
+            try:
+                start_time = datetime.fromisoformat(start)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid start datetime format. Use ISO format."
+                )
+            end_time = start_time + timedelta(hours=hours)
+        else:
+            end_time = datetime.now()
+            start_time = end_time - timedelta(hours=hours)
+
+        # Run analysis
+        results = analyzer.analyze_range(platform, start_time, end_time)
+
+        # Summarize results
+        total_posts = sum(r.total_posts for r in results)
+        total_coordinated = sum(r.coordinated_posts for r in results)
+        total_clusters = sum(len(r.clusters) for r in results)
+        avg_score = sum(r.coordination_score for r in results) / len(results) if results else 0
+
+        return {
+            "status": "success",
+            "platform": platform,
+            "time_range": {
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+                "hours": hours
+            },
+            "summary": {
+                "hours_analyzed": len(results),
+                "total_posts": total_posts,
+                "coordinated_posts": total_coordinated,
+                "clusters_detected": total_clusters,
+                "average_coordination_score": round(avg_score, 2),
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running coordination analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/coordination/stats")
+async def get_coordination_stats(platform: Optional[str] = Query(None)):
+    """Get overall coordination detection statistics."""
+    try:
+        db = get_database()
+        cutoff_24h = datetime.now() - timedelta(hours=24)
+        cutoff_7d = datetime.now() - timedelta(days=7)
+
+        with db.get_session() as session:
+            # Total clusters ever detected
+            clusters_query = session.query(CoordinationClusterDB)
+            metrics_query = session.query(CoordinationMetricDB)
+
+            if platform:
+                clusters_query = clusters_query.filter_by(platform=platform)
+                metrics_query = metrics_query.filter_by(platform=platform)
+
+            total_clusters = clusters_query.count()
+
+            # Last 24h metrics
+            recent_metrics = metrics_query.filter(
+                CoordinationMetricDB.time_bucket >= cutoff_24h
+            ).all()
+
+            # Last 7d metrics
+            week_metrics = metrics_query.filter(
+                CoordinationMetricDB.time_bucket >= cutoff_7d
+            ).all()
+
+            # Calculate stats
+            def calc_stats(metrics):
+                if not metrics:
+                    return {"avg_score": 0, "peak_score": 0, "total_posts": 0, "total_coordinated": 0}
+                scores = [m.coordination_score for m in metrics]
+                return {
+                    "avg_score": round(sum(scores) / len(scores), 2),
+                    "peak_score": round(max(scores), 2),
+                    "total_posts": sum(m.total_posts_analyzed for m in metrics),
+                    "total_coordinated": sum(m.coordinated_posts_count for m in metrics),
+                    "hours_analyzed": len(metrics),
+                }
+
+            return {
+                "platform": platform or "all",
+                "total_clusters_detected": total_clusters,
+                "last_24h": calc_stats(recent_metrics),
+                "last_7d": calc_stats(week_metrics),
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting coordination stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,11 +1,11 @@
 # Purisa Development Progress
 
 ## Project Overview
-Multi-platform social media bot detection system. Starting with Bluesky (primary) and Hacker News (secondary), with plans to expand to Mastodon, Twitter/X, and Reddit.
+Multi-platform social media coordination detection system. Analyzes Bluesky (primary) and Hacker News (secondary) for coordinated inauthentic behavior patterns using network analysis.
 
-**Current Version**: 0.9.0 (CLI Progress Bars + Top Performer Stats)
+**Current Version**: 2.0.0 (Coordination Detection)
 
-## Current Phase: MVP (Phase 1)
+## Current Phase: Phase 2 Complete (Coordination Detection)
 
 ### Completed ✅
 
@@ -49,6 +49,31 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
 - [x] Platform-agnostic data structures
 - [x] Proper indexes for performance
 
+#### Coordination Detection (NEW in 2.0)
+- [x] New database tables for coordination detection:
+  - [x] AccountEdgeDB - Pairwise account similarity edges
+  - [x] CoordinationClusterDB - Detected coordination clusters
+  - [x] ClusterMemberDB - Cluster membership with centrality scores
+  - [x] CoordinationMetricDB - Hourly/daily coordination metrics
+  - [x] EventDB - User-contributed or auto-detected events
+  - [x] EventCorrelationDB - Link coordination spikes to events
+- [x] CoordinationAnalyzer service (`coordination.py`)
+  - [x] Build similarity networks with NetworkX
+  - [x] Synchronized posting detection (90-second window)
+  - [x] URL sharing detection
+  - [x] Text similarity with TF-IDF (>0.8 threshold)
+  - [x] Hashtag overlap detection
+  - [x] Reply pattern detection
+  - [x] Louvain community detection for clusters
+  - [x] Hourly coordination scoring (0-100)
+  - [x] Historical metrics storage
+  - [x] Spike detection (z-score based)
+- [x] TextSimilarityCalculator service (`similarity.py`)
+  - [x] TF-IDF vectorization with scikit-learn
+  - [x] Cosine similarity calculation
+  - [x] URL extraction and matching
+  - [x] Hashtag overlap calculation
+
 #### Services
 - [x] UniversalCollector service
   - [x] Platform-agnostic collection
@@ -61,24 +86,11 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
   - [x] Inflammatory content analysis integration
   - [x] Account flagging for bot analysis
   - [x] Full profile fetch for commenter accounts (batch, with progress logging)
-- [x] BotDetector analyzer with 13 detection signals:
-  - [x] New account detection (0-2 points)
-  - [x] High frequency posting (0-3 points)
-  - [x] Repetitive content (0-2.5 points)
-  - [x] Low engagement ratio (0-1.5 points)
-  - [x] Generic username patterns (0-1 point)
-  - [x] Incomplete profile (0-1 point)
-  - [x] Temporal posting patterns (0-1 point)
-  - [x] Unverified account/trust signals (0-1.5 points)
-  - [x] Comment repetitiveness (0-2 points)
-  - [x] Comment timing / rapid-fire (0-2.5 points)
-  - [x] Inflammatory frequency (0-2 points)
-  - [x] Comment-to-post ratio (0-1.5 points)
-  - [x] Comment engagement ratio (0-1.5 points)
+- [x] BotDetector analyzer with 13 detection signals (legacy, kept for reference)
 - [x] Inflammatory content detector (Detoxify ML)
   - [x] Lazy loading for performance
   - [x] Batch inference support
-  - [x] 6 toxicity categories (toxic, severe_toxic, obscene, threat, insult, identity_hate)
+  - [x] 6 toxicity categories
   - [x] Configurable threshold (default 0.5)
 - [x] BackgroundScheduler with APScheduler
   - [x] Configurable collection intervals
@@ -88,18 +100,18 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
 #### API Endpoints
 - [x] GET /api/health - Health check
 - [x] GET /api/platforms/status - Platform availability
-- [x] GET /api/accounts/all - List all accounts with scores (paginated, limit up to 5000, include_comment_stats param)
-- [x] GET /api/accounts/flagged - List flagged accounts (paginated, limit up to 5000, include_comment_stats param)
+- [x] GET /api/accounts/all - List all accounts (paginated)
 - [x] GET /api/accounts/{platform}/{id} - Account details
-- [x] GET /api/accounts/{platform}/{id}/comment-stats - Account comment behavior stats
 - [x] GET /api/posts - Get posts with filters
-- [x] GET /api/posts/{platform}/{id}/comments - Get comments for a post
-- [x] GET /api/comments/inflammatory - List inflammatory comments with filters
 - [x] GET /api/stats/overview - Statistics overview
-- [x] GET /api/stats/comments - Comment collection statistics
 - [x] POST /api/collection/trigger - Manual collection trigger
 - [x] POST /api/analysis/trigger - Manual analysis trigger
-- [x] Snake_case to camelCase transformation in API client
+- [x] **NEW** GET /api/coordination/metrics - Get coordination metrics
+- [x] **NEW** GET /api/coordination/spikes - Get coordination spikes
+- [x] **NEW** GET /api/coordination/timeline - Get coordination timeline
+- [x] **NEW** GET /api/coordination/clusters - Get detected clusters
+- [x] **NEW** POST /api/coordination/analyze - Trigger coordination analysis
+- [x] **NEW** GET /api/coordination/stats - Get coordination statistics
 
 #### Frontend
 - [x] Bun native tooling (no Vite) + React 19 setup
@@ -107,33 +119,15 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
 - [x] TailwindCSS styling with CSS variables for theming
 - [x] PostCSS and Autoprefixer
 - [x] shadcn/ui component library (Radix UI primitives)
-  - [x] Button, Card, Badge, Table, Tabs, Select components
-  - [x] Skeleton loading states
-  - [x] class-variance-authority for variants
 - [x] Dark mode support
-  - [x] ThemeContext with React Context API
-  - [x] ThemeToggle component (Sun/Moon icons)
-  - [x] localStorage persistence
-  - [x] System preference detection
 - [x] TypeScript types (Account, Post, Detection, Stats, CommentStats)
 - [x] API client with Axios
-- [x] Data transformation layer (snake_case → camelCase)
-- [x] React hooks for state management (useStats, useAccounts, usePlatforms)
+- [x] React hooks for state management
 - [x] Dashboard with tab navigation
-  - [x] "All Accounts" view (shows all analyzed accounts)
-  - [x] "Flagged Accounts" view (shows only suspicious accounts)
-- [x] StatsCards component with 7 metrics (4 core + 3 comment stats)
-- [x] AccountsTable component with scoring visualization
-  - [x] Comment stats column with inflammatory indicators
+- [x] StatsCards component
+- [x] AccountsTable component (legacy)
 - [x] PlatformFilter component
 - [x] CollectionPanel component for UI-based data collection
-  - [x] Platform selection dropdown
-  - [x] Multi-query support with chips UI (add/remove queries)
-  - [x] Configurable post limit (50-5000)
-  - [x] Comment harvesting toggle
-  - [x] Collect Only / Analyze Only / Collect & Analyze buttons
-  - [x] Real-time progress feedback and results display
-  - [x] Aggregated results across multiple queries
 - [x] Responsive design
 - [x] Loading and error states
 - [x] Hot Module Replacement (HMR) via Bun native
@@ -144,32 +138,30 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
   - [x] Multi-query support (can specify --query multiple times)
   - [x] Platform-specific collection
   - [x] Batch processing with progress output
-  - [x] Progress bars (tqdm) for queries and comment harvesting
+  - [x] Progress bars (tqdm)
   - [x] `--harvest-comments / --no-harvest-comments` flag
-  - [x] Top performer stats display (qualifying posts, threshold, capping)
-- [x] analyze command - Bot detection
-  - [x] Progress bar for account analysis
-- [x] flagged command - View flagged accounts
-- [x] stats command - Show statistics
+  - [x] Top performer stats display
+- [x] **REWRITTEN** analyze command - Coordination detection
+  - [x] `--platform` option for platform selection
+  - [x] `--hours` option for analysis window
+  - [x] `--start` option for start time
+  - [x] Progress bar for hourly analysis
+  - [x] Summary output with high coordination hours
+- [x] **NEW** spikes command - Spike detection
+  - [x] `--platform` option
+  - [x] `--hours` option for lookback period
+  - [x] `--threshold` option for sensitivity
+  - [x] Table output with z-scores
+- [x] stats command - Show statistics (updated for coordination)
 - [x] Tabulate formatting for output
 - [x] Platform filtering
 - [x] Error handling
 - [x] Install script for system-wide `purisa` command
+- [x] .env loading fix for backend credentials
 
 #### Documentation
 - [x] Comprehensive README.md
-  - [x] Quick start guide with ./start.sh
-  - [x] In-depth detection signals documentation
-  - [x] Platform-specific differences
-  - [x] API documentation
-  - [x] Configuration guide
-  - [x] Troubleshooting section
-  - [x] Example bot scores and explanations
-- [x] CLI_MANUAL.md - Complete CLI reference
-  - [x] All commands documented
-  - [x] Multi-query examples
-  - [x] Workflow guides
-  - [x] Best practices
+- [x] CLI_MANUAL.md - Complete CLI reference (updated for 2.0)
 - [x] AGENTS.md (this file)
 - [x] .env.example with all variables
 - [x] Code comments and docstrings
@@ -177,7 +169,7 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
 
 #### Configuration
 - [x] .gitignore for Python and Node/Bun
-- [x] requirements.txt (latest versions, including detoxify>=0.5.2)
+- [x] requirements.txt (including networkx, scikit-learn, pandas)
 - [x] setup.py for backend package
 - [x] package.json for frontend
 - [x] Platform configuration YAML
@@ -188,7 +180,8 @@ Multi-platform social media bot detection system. Starting with Bluesky (primary
 
 ### In Progress 🚧
 
-None currently - MVP is complete!
+- [ ] Frontend dashboard redesign for coordination timeline view
+- [ ] Coordination visualization components
 
 ### Blocked ⛔
 
@@ -200,163 +193,66 @@ None
 - [x] Database initialization
 - [x] Platform adapters (Bluesky, HN)
 - [x] Data collection workflow
-- [x] Bot detection algorithm
+- [x] Coordination analysis algorithm
+- [x] Cluster detection with real data
+- [x] Spike detection
+- [x] Historical metrics storage
 - [x] API endpoints
-- [x] Frontend components
 - [x] CLI commands
 
+### Test Results (2026-02-01)
+- **HackerNews**: 49 posts, 2071 comments - no coordination detected (expected for organic data)
+- **Bluesky**: 88 posts - 9 clusters detected, 2 spikes (100.0 score)
+- **Metrics stored**: All hours in analysis window, including zero-activity hours
+
 ### Automated Testing
-- [ ] Unit tests for platform adapters
-- [ ] Unit tests for detection signals
+- [ ] Unit tests for coordination detection
+- [ ] Unit tests for similarity calculation
 - [ ] Integration tests for API
 - [ ] End-to-end tests for workflow
 
 ## Future Phases
 
-### Phase 2: Enhanced Detection (In Progress)
+### Phase 3: Dashboard Redesign
 
-**Goal**: Improve detection accuracy and add advanced analysis
+**Goal**: Replace account-based dashboard with coordination timeline view
 
-**Recent Additions:**
-- [x] Verification status signal (Bluesky verified, HN karma-based trust)
-- [x] Multi-query batch collection
-- [x] Enhanced frontend with "All Accounts" view
-- [x] Comment-based bot detection with 5 new signals
-- [x] Detoxify ML-based inflammatory content detection
-- [x] Comment harvesting from top-performing posts
-- [x] InflammatoryFlagDB and CommentStatsDB tables
-- [x] Vue→React migration (React 19, React Router 7)
-- [x] Bun native frontend tooling (removed Vite dependency)
-- [x] Comment stats UI (3 new cards: Total Comments, Inflammatory, Avg Severity)
-- [x] Backend dependency upgrades (FastAPI 0.128, SQLAlchemy 2.0.46, etc.)
+- [ ] Coordination timeline chart component
+- [ ] Spike detail view
+- [ ] Remove individual account scoring view
+- [ ] Add cluster visualization
+- [ ] Add event correlation UI
 
-**Next Steps:**
-- [x] Review Scoring System
-  - [x] Signals in the UI not matching bot score (fixed: Pydantic model capped at 10.0, now 22.0)
-- [x] Comment/reply analysis
-  - [x] Reply pattern detection (comment timing signal)
-  - [x] Comment harvesting infrastructure
-  - [x] Inflammatory content detection (Detoxify)
-  - [x] 5 comment-based scoring signals
-- [ ] Automated Testing Suite
-  - [ ] Backend unit tests (pytest)
-    - [ ] Platform adapter tests (Bluesky, HN)
-    - [ ] Detection signal tests (all 13 signals)
-    - [ ] Inflammatory detector tests
-    - [ ] API endpoint tests
-  - [ ] Frontend unit tests (Bun test)
-    - [ ] Hook tests (useStats, useAccounts)
-    - [ ] Component tests (StatsCards, AccountsTable)
-  - [ ] Integration tests
-    - [ ] Full collection cycle
-    - [ ] End-to-end API flows
-  - [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Advanced detection algorithms
-  - [ ] Sentiment analysis using transformers
-  - [ ] Text similarity using sentence embeddings
-  - [ ] Benford's Law for engagement numbers
-  - [ ] Graph-based bot detection
-- [ ] Narrative clustering
-  - [ ] Topic modeling
-  - [ ] Cross-account narrative correlation
-  - [ ] Temporal narrative tracking
-- [ ] Content similarity detection
-  - [ ] Image similarity (if applicable)
-  - [ ] Text deduplication at scale
-- [ ] Cross-account coordination detection
-  - [ ] Posting time correlation
-  - [ ] Content similarity across accounts
-  - [ ] Network analysis
+### Phase 4: Event Correlation
 
-### Phase 3: Multi-Platform Expansion
+**Goal**: Add event tracking and correlation
+
+- [ ] Event entry UI
+- [ ] Event overlay on timeline
+- [ ] Correlation analysis (pre/post event patterns)
+- [ ] Spike alerting
+
+### Phase 5: Multi-Platform Expansion
 
 **Goal**: Add more social media platforms
 
 - [ ] Mastodon integration
-  - [ ] Instance discovery
-  - [ ] Federated timeline access
-  - [ ] Account authentication
 - [ ] Twitter/X integration (if access available)
-  - [ ] API access (expensive tiers)
-  - [ ] Rate limiting handling
 - [ ] Reddit integration (if access available)
-  - [ ] OAuth authentication
-  - [ ] Subreddit monitoring
-- [ ] Cross-platform correlation
-  - [ ] Same accounts across platforms
-  - [ ] Coordinated narratives
-  - [ ] Cross-platform bot networks
+- [ ] Cross-platform coordination detection
 
-### Phase 4: Visualization & UX
-
-**Goal**: Improve user experience and data visualization
-
-- [x] Collection Panel enhancements
-  - [x] Multiple query support (batch collection from UI)
-  - [ ] Query history/saved queries
-- [x] Comment stats per account
-  - [x] Comments column in AccountsTable with inflammatory indicators
-  - [x] include_comment_stats API parameter
-- [ ] Comment stats navigation
-  - [ ] Dedicated comments/inflammatory page
-  - [ ] View individual flagged comments
-  - [ ] Comment-to-account drill-down
-- [ ] Network graph visualization
-  - [ ] D3.js or vis.js integration
-  - [ ] Account interaction graphs
-  - [ ] Bot network visualization
-- [ ] Timeline views
-  - [ ] Account activity over time
-  - [ ] Narrative evolution
-- [ ] Advanced filtering and search
-  - [ ] Full-text search
-  - [ ] Complex query builder
-  - [ ] Saved filters
-- [ ] Export functionality
-  - [ ] CSV export
-  - [ ] JSON export
-  - [ ] PDF reports
-- [ ] Account comparison views
-  - [ ] Side-by-side comparison
-  - [ ] Diff visualization
-- [ ] Narrative flow diagrams
-  - [ ] Topic evolution
-  - [ ] Spread visualization
-
-### Phase 5: Production Ready
+### Phase 6: Production Ready
 
 **Goal**: Deploy to production with enterprise features
 
 - [ ] PostgreSQL migration
-  - [ ] Migration scripts
-  - [ ] Connection pooling
-  - [ ] Query optimization
 - [ ] Docker containerization
-  - [ ] Multi-stage builds
-  - [ ] Docker Compose
-  - [ ] Health checks
 - [ ] Cloud deployment
-  - [ ] Railway configuration
-  - [ ] Render configuration
-  - [ ] DigitalOcean setup guide
 - [ ] Authentication system
-  - [ ] User accounts (optional)
-  - [ ] API keys
-  - [ ] Role-based access
 - [ ] API rate limiting
-  - [ ] Per-user limits
-  - [ ] Redis-based limiting
 - [ ] Caching layer
-  - [ ] Redis caching
-  - [ ] Cache invalidation
 - [ ] Automated testing suite
-  - [ ] Unit tests (80%+ coverage)
-  - [ ] Integration tests
-  - [ ] E2E tests
 - [ ] CI/CD pipeline
-  - [ ] GitHub Actions
-  - [ ] Automated deployment
-  - [ ] Version tagging
 
 ## Technical Decisions Log
 
@@ -378,132 +274,71 @@ None
 **Rationale**: Zero-config, easy migration path to PostgreSQL
 **Impact**: Faster initial development, schema flexibility, simple deployment
 
-**Decision**: Bun + Vue 3 + TypeScript for frontend (initial)
-**Rationale**: Modern stack, fast tooling, type safety
-**Impact**: Better DX, faster builds, fewer runtime errors
-
 ### 2026-01-24 - Vue→React Migration
 
 **Decision**: Migrate from Vue 3 to React 19 with Bun native tooling
-**Rationale**: Bun 1.3+ provides native frontend dev server with HMR; eliminates Vite dependency; React Fast Refresh works out of box; simpler build pipeline (`bun index.html` for dev, `bun build` for prod)
-**Impact**: Removed Vite, vue-router, Pinia; replaced with React, React Router 7, custom hooks; frontend port changed from 5173 to 3000
-
-**Decision**: Use custom React hooks instead of Pinia stores
-**Rationale**: React's built-in useState/useEffect with custom hooks provides equivalent functionality; simpler architecture without additional state management library
-**Impact**: useStats, useAccounts, usePlatforms hooks replace Pinia stores
-
-**Decision**: 8 detection signals with 0-13.5 scoring
-**Rationale**: Balance between simplicity and accuracy; transparent scoring; verification status adds important trust dimension
-**Impact**: Easy to understand, tune thresholds, explain to users; verified accounts less likely to be flagged
-
-**Decision**: Manual trigger for MVP, optional background scheduler
-**Rationale**: Better for testing and development; can enable later
-**Impact**: More control during development, easier debugging
-
-### 2026-01-25 - Collection Panel UI
-
-**Decision**: Add CollectionPanel component for UI-based data collection
-**Rationale**: Users should be able to collect and analyze data without CLI; provides visual feedback on collection progress; simplifies workflow for non-technical users
-**Impact**: Full collection workflow accessible from dashboard; platform/query/limit configurable in UI; comment harvesting toggle; combined "Collect & Analyze" action
-
-**Decision**: Enhanced collection API with query parameters
-**Rationale**: Original `/api/collection/trigger` only ran full cycle; need granular control for specific queries and limits
-**Impact**: API now accepts `query`, `limit`, `harvest_comments` parameters; returns detailed results (posts/accounts/comments collected)
-
-**Decision**: Investigate and document comment collection workflow
-**Rationale**: Comment-based detection was implemented but workflow unclear; needed to verify it works during normal collection
-**Impact**: Confirmed comment harvesting IS automatic during collection if enabled; identified that scheduler is disabled by default; analysis still requires separate trigger
-
-### 2026-01-24 - shadcn/ui + Dark Mode
-
-**Decision**: Migrate to shadcn/ui component library
-**Rationale**: Previous custom CSS had SVG sizing issues; shadcn/ui provides accessible, tested components; built on Radix UI primitives; components are copied into project (no version lock-in)
-**Impact**: Modern, polished UI with consistent styling; dark mode support; better accessibility
-
-**Decision**: Add dark mode with system preference detection
-**Rationale**: Modern UX expectation; reduces eye strain; respects user preferences
-**Impact**: ThemeContext provides toggle and localStorage persistence; system preference detected on first load
-
-**Decision**: Build Tailwind CSS separately before Bun dev server
-**Rationale**: Bun's native dev server doesn't process PostCSS; Tailwind requires PostCSS for @apply directives and CSS variables
-**Impact**: start.sh now runs `bunx tailwindcss` in watch mode alongside `bun index.html`
+**Rationale**: Bun 1.3+ provides native frontend dev server with HMR; eliminates Vite dependency
+**Impact**: Removed Vite, vue-router, Pinia; replaced with React, React Router 7, custom hooks
 
 ### 2026-01-24 - Comment-Based Bot Detection
 
 **Decision**: Add 5 comment-based detection signals (total 13 signals, max 22.0 points)
-**Rationale**: Research shows bots operate as "amplification parasites" targeting comment sections of viral content; ~20% of social media chatter on major events comes from bots
-**Impact**: Better detection of comment-spamming bots that don't create original content
+**Rationale**: Research shows bots operate as "amplification parasites" targeting comment sections
+**Impact**: Better detection of comment-spamming bots
 
 **Decision**: Use Detoxify ML library for inflammatory detection
-**Rationale**: Local ML model (98%+ AUC) without external API dependencies; supports batch inference; lightweight (~500MB RAM)
-**Impact**: Fast, accurate toxicity detection without API costs or rate limits
+**Rationale**: Local ML model (98%+ AUC) without external API dependencies
+**Impact**: Fast, accurate toxicity detection without API costs
 
-**Decision**: Lazy load Detoxify model on first use
-**Rationale**: Model loading takes 5-10 seconds; shouldn't block application startup
-**Impact**: Faster startup, model only loaded when inflammatory detection is actually needed
+### 2026-02-01 - Purisa 2.0 Coordination Detection
 
-**Decision**: Store comments as Posts with parent_id
-**Rationale**: Reuses existing infrastructure; allows unified post/comment analysis
-**Impact**: Simpler architecture, consistent data model, efficient queries
+**Decision**: Shift from individual account scoring to network-based coordination detection
+**Rationale**: Network analysis detects coordinated behavior more effectively than individual signals; avoids false positive issues with individual account flagging; focuses on patterns rather than individuals
+**Impact**: Complete paradigm shift - new database tables, services, CLI commands, and API endpoints
 
-### 2026-01-26 - Commenter Profile Fetching
+**Decision**: Use NetworkX for in-memory graph analysis
+**Rationale**: Zero infrastructure (no Neo4j needed); Python-native; great for batch analysis; easy migration path to graph DB later if needed for scale
+**Impact**: Simple deployment, no external dependencies, sufficient for local/MVP use
 
-**Decision**: Fetch full profiles for commenter accounts during comment harvesting
-**Rationale**: Minimal account entries only allow 5 comment-based signals; full profiles enable all 13 signals including incomplete_profile, unverified_account, low_engagement
-**Impact**: More complete bot detection for commenters; slower collection (~0.5-1s per new account) but within rate limits
+**Decision**: Use TF-IDF for text similarity over sentence embeddings
+**Rationale**: Faster, simpler, sufficient for MVP; sentence embeddings (BERT/etc) add complexity and compute requirements without proven benefit for this use case
+**Impact**: Faster analysis, lower resource requirements, scikit-learn dependency only
 
-**Decision**: Batch profile fetching with progress logging
-**Rationale**: Fetching profiles inline with each comment would be slow and hard to track; batching after all comments stored allows deduplication and progress feedback
-**Impact**: Better UX with progress indicators; efficient deduplication of accounts appearing in multiple comment threads
+**Decision**: 90-second window for synchronized posting detection
+**Rationale**: Start inclusive to catch coordination; can tighten threshold if false positives are high
+**Impact**: Configurable via CoordinationConfig dataclass
 
-### 2026-01-26 - Top Performer Stats + CLI Progress Bars
+**Decision**: Louvain community detection for cluster identification
+**Rationale**: Well-established algorithm, good balance of speed and accuracy, available in NetworkX
+**Impact**: Reliable cluster detection with configurable resolution parameter
 
-**Decision**: Add detailed stats to top performer identification and return in API response
-**Rationale**: Users need visibility into how limit, min_engagement_score, and max_posts_for_comment_harvest interact; without stats, hard to tune collection parameters
-**Impact**: API returns top_performer_stats object; warnings logged when few posts qualify or many are capped; better tuning guidance
+**Decision**: Store metrics for all analyzed hours (including zero-activity)
+**Rationale**: Historical tracking requires consistent time series; gaps in data make trend analysis difficult
+**Impact**: Complete historical record for baseline calculation and trend analysis
 
-**Decision**: Add tqdm progress bars to CLI collect and analyze commands
-**Rationale**: Long-running operations (comment harvesting, analysis) need visual feedback; tqdm is already installed via dependencies
-**Impact**: Real-time progress for queries, comment harvesting, and account analysis; graceful fallback to text-based progress if tqdm unavailable
-
-**Decision**: Fix missing store_posts() call in collection trigger API
-**Rationale**: Posts were being collected but not stored to database; discovered during testing
-**Impact**: Collection API now properly persists posts to database
-
-### 2026-01-24 - Enhanced Detection
-
-**Decision**: Add verification status as 8th detection signal (0-1.5 points)
-**Rationale**: Verified accounts and high-trust users are significantly less likely to be bots; adds important trust dimension
-**Impact**: Better accuracy, fewer false positives on verified accounts, max score now 13.5
-
-**Decision**: Weight unverified accounts higher than other profile signals
-**Rationale**: Verification is a strong trust signal; unverified + new account is particularly suspicious
-**Impact**: Unverified new accounts can score up to 1.5 points vs 1.0 for incomplete profile
-
-**Decision**: Use karma as trust proxy for Hacker News
-**Rationale**: HN doesn't have formal verification; karma is community-validated trust metric
-**Impact**: High-karma users (≥1000) treated as verified equivalents
+**Decision**: Use time_window_start for cluster_id instead of datetime.now()
+**Rationale**: Enables idempotent re-analysis; prevents UNIQUE constraint errors when re-running
+**Impact**: Can safely re-run analysis on same time window
 
 ## Known Issues
 
 ### Recently Fixed ✅
 - ✅ Timestamp precision handling (atproto 0.0.65 nanosecond support)
 - ✅ Snake_case to camelCase type mismatches in frontend
-- ✅ AccountsTable rendering issues with signal badges
-- ✅ Button styling (Tailwind custom colors)
-- ✅ Stats data transformation
-- ✅ Signals not matching bot score (Pydantic model max was 10.0, actual max is 13.5)
-- ✅ Bluesky pagination for collecting >100 posts (API limit)
+- ✅ SQLAlchemy `metadata` reserved name (renamed to cluster_metadata, etc.)
+- ✅ cluster_id using datetime.now() instead of time window (fixed for idempotent re-analysis)
+- ✅ Metrics not stored for zero-activity hours (now stored for all analyzed hours)
+- ✅ CLI not loading backend/.env for platform credentials (added dotenv loading)
 
 ### Minor Issues
 - Bluesky account creation date not directly exposed in API (workaround: using current time)
 - HN Firebase API doesn't support keyword search (would need Algolia integration)
-- Some npm audit warnings (moderate severity, breaking changes to fix)
+- Some npm audit warnings (moderate severity)
 
 ### Performance Considerations
 - SQLite may struggle with >100k accounts (migration to PostgreSQL recommended)
-- Content similarity detection is O(n²) for large datasets (needs optimization)
-- ✅ Pagination added to frontend tables with configurable page sizes (50-1000) and offset-based API
+- NetworkX builds graphs in-memory (may need optimization for very large datasets)
+- Pagination added to frontend tables with configurable page sizes
 
 ### Security Considerations
 - No authentication on API (intentional for MVP, but needed for production)
@@ -512,114 +347,62 @@ None
 
 ## Performance Metrics
 
-_Tracked once data collection begins_
+_From testing on 2026-02-01_
 
-- Posts collected (Bluesky): **TBD**
-- Posts collected (HN): **TBD**
-- Accounts analyzed: **TBD**
-- Flags generated: **TBD**
-- False positive rate: **TBD** (requires manual verification)
-- Collection cycle time: **TBD**
-- Analysis cycle time: **TBD**
-- Database size: **TBD**
+- Posts collected (Bluesky): 88
+- Posts collected (HN): 2140 (49 posts + 2071 comments)
+- Clusters detected (Bluesky): 9
+- Coordination spikes found: 2
+- Analysis time (6 hours): ~0.06 seconds
+- Database size: ~5MB
 
 ## Notes for Future Development
 
-### Platform-Specific Considerations
-
-**Bluesky:**
-- Account creation date not directly exposed - consider implementing DID resolution for better tracking
-- AT Protocol supports custom feeds - potential future feature for curated bot detection feeds
-- Labeling system could be integrated for community-driven bot reporting
-- PDS (Personal Data Server) architecture allows for decentralized deployment
-
-**Hacker News:**
-- No followers/following concept - adjust detection signals accordingly
-- Karma system is unique - different engagement metric than likes/reposts
-- Consider Algolia HN Search API integration for better search (https://hn.algolia.com/api)
-- Comments are valuable signal - analyze comment patterns in Phase 2
-- Story vs comment submissions should be weighted differently
-
-### Detection Algorithm Ideas
+### Coordination Detection Improvements
 
 **High Priority:**
-- Implement text similarity using sentence transformers (SentenceTransformers library)
-- Add temporal pattern analysis with hourly posting heatmaps
-- Consider Benford's Law analysis for suspicious engagement numbers
-- Implement graph-based detection for follower/following networks
+- Add topic extraction (keyword/hashtag clustering) for coordinated content
+- Implement cross-platform coordination detection
+- Add network visualization (D3.js force-directed graph)
+- Implement real-time streaming analysis
 
 **Medium Priority:**
-- Language detection and multilingual support
-- Emoji usage patterns (bots often overuse or underuse)
-- Link sharing patterns (spam bots share many links)
-- Response time analysis (bots often respond instantly)
+- Add more coordination signals (follower overlap, timing patterns)
+- Implement alert system for high-coordination spikes
+- Add export functionality for coordination reports
+- Consider graph database (Neo4j) for scale
 
 **Low Priority:**
-- Profile picture similarity (requires computer vision)
-- Bio text similarity across accounts
-- Geolocation patterns (if available)
+- Add machine learning classification of coordination types
+- Implement historical comparison (this week vs last week)
+- Add geographic analysis (if location data available)
 
 ### Architecture Improvements
 
 **Database:**
-- Add Redis for caching frequently accessed data
+- Add Redis for caching frequently accessed metrics
 - Implement database connection pooling for PostgreSQL
-- Consider time-series database for temporal analysis (InfluxDB, TimescaleDB)
-- Add full-text search index for content search
+- Consider time-series database for high-frequency analysis (TimescaleDB)
 
 **API:**
+- Add WebSocket support for real-time updates
+- Implement batch operations for bulk analysis
 - Add GraphQL endpoint for flexible queries
-- Implement webhook system for real-time alerts
-- Add batch operations for bulk analysis
-- Consider gRPC for internal services
 
 **Frontend:**
 - Add real-time updates using WebSockets
-- Implement infinite scroll for large datasets
-- ✅ Add dark mode support (completed with shadcn/ui)
-- Consider mobile app (React Native or Flutter)
+- Implement coordination timeline visualization
+- Add drill-down from spike to cluster details
 
-### Deployment Considerations
+## Success Metrics for 2.0
 
-**Railway:**
-- Easiest deployment option
-- Automatic HTTPS
-- PostgreSQL addon available
-- ~$5/month for hobby plan
-
-**Render:**
-- Free tier available
-- Good for MVP
-- PostgreSQL included
-- Auto-deploy from GitHub
-
-**DigitalOcean:**
-- More control
-- App Platform or Droplets
-- ~$5-12/month
-- Managed PostgreSQL available
-
-### Data Privacy & Ethics
-
-**Important Considerations:**
-- All data collected is public
-- Bot detection is probabilistic, not definitive
-- False positives are possible and should be expected
-- Users should verify findings before taking action
-- Consider implementing appeal/review system
-- Respect platform ToS and rate limits
-- Don't use for harassment or coordinated reporting
-
-## Success Metrics for MVP
-
-- [x] Successfully collect data from Bluesky
-- [x] Successfully collect data from Hacker News
-- [x] Store at least 100 posts in database
-- [x] Identify at least 1 suspicious account
-- [x] CLI tool works end-to-end
-- [x] Web dashboard displays data correctly
-- [ ] Run for 24 hours without crashes (pending testing)
-- [ ] Flag rate between 1-10% (pending real data)
+- [x] Successfully detect coordination in test data
+- [x] Spike detection identifies unusual activity
+- [x] Historical metrics stored for all analyzed hours
+- [x] CLI commands work end-to-end
+- [x] API endpoints return correct data
+- [ ] Dashboard shows coordination timeline (pending frontend update)
+- [ ] False positive rate < 20% on manual review (pending validation)
 
 ## Resources & References
 
@@ -627,14 +410,14 @@ _Tracked once data collection begins_
 - Bluesky AT Protocol: https://atproto.com/
 - Hacker News API: https://github.com/HackerNews/API
 - FastAPI: https://fastapi.tiangolo.com/
-- React 19: https://react.dev/
-- React Router 7: https://reactrouter.com/
-- Bun: https://bun.sh/
+- NetworkX: https://networkx.org/
+- scikit-learn TF-IDF: https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
+- Louvain Algorithm: https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.community.louvain.louvain_communities.html
 
 **Research:**
-- Bot detection literature (add references as researched)
-- Social network analysis papers
-- NLP for bot detection
+- Coordinated Inauthentic Behavior detection
+- Social network analysis for bot detection
+- Community detection algorithms
 
 ## Contributors
 
@@ -643,5 +426,5 @@ _Tracked once data collection begins_
 
 ---
 
-Last Updated: 2026-01-26
-Version: 0.9.0 (CLI Progress Bars + Top Performer Stats)
+Last Updated: 2026-02-01
+Version: 2.0.0 (Coordination Detection)

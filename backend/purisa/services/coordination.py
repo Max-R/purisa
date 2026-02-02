@@ -165,7 +165,7 @@ class CoordinationAnalyzer:
                 return result
 
             # Detect clusters
-            clusters = self._detect_clusters(graph)
+            clusters = self._detect_clusters(graph, hour_start)
 
             # Calculate coordination metrics
             result = self._calculate_metrics(
@@ -479,7 +479,7 @@ class CoordinationAnalyzer:
                 evidence={result.similarity_type: result.evidence}
             )
 
-    def _detect_clusters(self, G: nx.Graph) -> List[Cluster]:
+    def _detect_clusters(self, G: nx.Graph, time_window_start: datetime) -> List[Cluster]:
         """Detect coordination clusters using Louvain community detection."""
         if G.number_of_nodes() < self.config.min_cluster_size:
             return []
@@ -515,8 +515,9 @@ class CoordinationAnalyzer:
 
                 primary_type = max(edge_types, key=edge_types.get) if edge_types else 'unknown'
 
+                # Use time window for cluster_id to ensure uniqueness and reproducibility
                 cluster = Cluster(
-                    cluster_id=f"{datetime.now().strftime('%Y%m%d_%H%M')}_cluster_{i}",
+                    cluster_id=f"{time_window_start.strftime('%Y%m%d_%H%M')}_cluster_{i}",
                     members=list(community),
                     density=density,
                     size=len(community),
@@ -645,6 +646,23 @@ class CoordinationAnalyzer:
                     text_similarity_rate=result.text_similarity_rate,
                 )
                 session.add(metric)
+
+            # Delete existing clusters for this time window (allows re-analysis)
+            existing_cluster_ids = [
+                c.cluster_id for c in session.query(CoordinationClusterDB).filter(
+                    CoordinationClusterDB.platform == result.platform,
+                    CoordinationClusterDB.time_window_start == result.time_window_start,
+                ).all()
+            ]
+            if existing_cluster_ids:
+                # Delete cluster members first (foreign key constraint)
+                session.query(ClusterMemberDB).filter(
+                    ClusterMemberDB.cluster_id.in_(existing_cluster_ids)
+                ).delete(synchronize_session=False)
+                # Delete clusters
+                session.query(CoordinationClusterDB).filter(
+                    CoordinationClusterDB.cluster_id.in_(existing_cluster_ids)
+                ).delete(synchronize_session=False)
 
             # Store clusters
             for cluster in result.clusters:

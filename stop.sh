@@ -19,8 +19,16 @@ if [ -f .frontend.pid ]; then
     rm .frontend.pid
 fi
 
-# Also kill any lingering uvicorn or bun processes
+# Kill tailwind watcher
+if [ -f .tailwind.pid ]; then
+    TAILWIND_PID=$(cat .tailwind.pid)
+    kill $TAILWIND_PID 2>/dev/null && echo "Tailwind watcher stopped (PID: $TAILWIND_PID)" || true
+    rm .tailwind.pid
+fi
+
+# Also kill any lingering uvicorn, bun, or tailwind processes
 pkill -f "uvicorn purisa.main:app" 2>/dev/null || true
 pkill -f "bun index.html" 2>/dev/null || true
+pkill -f "tailwindcss.*watch" 2>/dev/null || true
 
 echo "All Purisa servers stopped"

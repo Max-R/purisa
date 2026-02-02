@@ -38,7 +38,8 @@ else
     echo "Try it out:"
     echo "  purisa --help"
     echo "  purisa collect --platform bluesky --query \"#politics\" --limit 50"
-    echo "  purisa analyze"
+    echo "  purisa analyze --platform bluesky --hours 6"
+    echo "  purisa spikes --platform bluesky"
     echo "  purisa stats"
     echo ""
 fi

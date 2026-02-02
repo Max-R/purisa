@@ -128,5 +128,18 @@ frontend/src/output.css
 # Claude Code
 .claude/
 
+# Planning documents (may contain sensitive implementation details)
+*-plan.md
+plan-*.md
+
+# Jupyter notebooks (may contain data/outputs)
+*.ipynb
+.ipynb_checkpoints/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
 # Empty directories that might have been created
 frontend/src/composables/AGENTS.md

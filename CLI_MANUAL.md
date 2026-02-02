@@ -1,6 +1,6 @@
 # Purisa CLI Manual
 
-Complete command-line interface reference for the Purisa bot detection system.
+Complete command-line interface reference for the Purisa 2.0 coordination detection system.
 
 ## Installation
 
@@ -53,7 +53,7 @@ purisa init
 
 **What it does:**
 - Creates SQLite database file (`purisa.db`)
-- Initializes all tables (accounts, posts, scores, flags)
+- Initializes all tables (accounts, posts, coordination metrics, clusters)
 - Verifies Bluesky credentials
 - Checks platform availability
 
@@ -110,8 +110,6 @@ Harvesting comments: 100%|████████| 12/12 [00:08<00:00, comments
 ✓ Harvested 47 comments from 12 top posts
 ```
 
-If `tqdm` is not available, text-based progress updates are shown instead.
-
 **Bluesky Queries:**
 - Hashtags: `#politics`, `#election2024`, `#climate`
 - Keywords: `supreme court`, `legislation`, `senate`
@@ -143,167 +141,153 @@ purisa collect --platform hackernews --query "top" --limit 30
 purisa collect
 ```
 
-**What it does:**
-1. Fetches posts matching your query
-2. Retrieves account info for each post author
-3. Stores posts and accounts in database
-4. Handles duplicates automatically
-
-**Comment Harvesting:**
-
-When `--harvest-comments` is enabled (default), the CLI:
-1. Identifies top-performing posts based on engagement score
-2. Shows stats: qualifying posts, threshold, and any capping
-3. Harvests comments with a progress bar
-4. Fetches full profiles for commenter accounts
-5. Runs inflammatory content detection (Detoxify ML)
-
-**Top Performer Stats:**
-
-The CLI shows detailed stats about which posts qualify for comment harvesting:
-- `Posts qualifying`: How many posts meet the engagement threshold
-- `Threshold`: The minimum engagement score (configurable in platforms.yaml)
-- `Capped at`: If more posts qualify than the max limit, shows how many were skipped
-
 ---
 
 ### `purisa analyze`
 
-Analyze accounts for bot-like behavior using 13 detection signals.
+Run coordination detection analysis on collected posts using network-based detection.
 
 **Usage:**
 ```bash
-# Analyze all accounts
-purisa analyze
-
-# Analyze specific account
-purisa analyze --account <account-id> --platform <platform>
-
-# Analyze all accounts from one platform
+# Analyze recent hours (default: 6 hours ending now)
 purisa analyze --platform <platform>
-```
 
-**Options:**
-- `--account` - Specific account ID (DID for Bluesky, username for HN)
-- `--platform` - Filter by platform: `bluesky` or `hackernews`
+# Analyze specific time range
+purisa analyze --platform <platform> --hours <number> --start "<datetime>"
 
-**Examples:**
-
-```bash
-# Analyze all collected accounts
+# Analyze all platforms
 purisa analyze
-
-# Analyze specific Bluesky account
-purisa analyze --account did:plc:abc123xyz --platform bluesky
-
-# Analyze only Hacker News accounts
-purisa analyze --platform hackernews
-```
-
-**Core Detection Signals (0-13.5 max):**
-1. **New Account** (0-2): Recently created accounts
-2. **High Frequency** (0-3): Impossibly high posting rates
-3. **Repetitive Content** (0-2.5): Duplicate or near-duplicate posts
-4. **Low Engagement** (0-1.5): High volume, low interaction
-5. **Generic Username** (0-1): Bot-like username patterns
-6. **Incomplete Profile** (0-1): Missing bio, avatar, etc.
-7. **Temporal Patterns** (0-1): 24/7 posting behavior
-8. **Unverified Account** (0-1.5): Lacks verification or trust signals
-
-**Comment-Based Signals (0-8.5 max):**
-9. **Inflammatory Content** (0-3): Toxic/hateful comments (Detoxify ML)
-10. **Comment Frequency** (0-2): High-volume comment activity
-11. **Comment Timing** (0-1.5): Rapid replies to viral content
-12. **Comment Repetition** (0-1): Copy-paste comments
-13. **Low Quality Comments** (0-1): Generic/spammy comment patterns
-
-**Total Maximum Score: 22.0**
-
-**Threshold:** Accounts scoring ≥7.0 are flagged as suspicious.
-
-**Note:** Verified Bluesky accounts (blue checkmark) and high-karma HN users (≥1000) receive 0 points for the unverified signal, reducing their overall bot score.
-
-**Progress Tracking:**
-
-The CLI displays a progress bar during analysis:
-
-```
-Analyzing all accounts...
-Analyzing: 100%|████████████████████| 156/156 [00:12<00:00, flagged=12]
-
-✓ Analyzed 156 accounts
-  Flagged: 12
-  Clean: 144
-```
-
-**Example output (without tqdm):**
-```
-Analyzing all accounts...
-  Progress: 20/156 accounts, 2 flagged
-  Progress: 40/156 accounts, 4 flagged
-  ...
-✓ Analyzed 156 accounts
-  Flagged: 12
-  Clean: 144
-```
-
----
-
-### `purisa flagged`
-
-Display accounts flagged as bots.
-
-**Usage:**
-```bash
-# Show flagged accounts (default: first 20)
-purisa flagged
-
-# Show all flagged accounts
-purisa flagged --all
-
-# Filter by platform
-purisa flagged --platform <platform>
 ```
 
 **Options:**
-- `--platform` - Filter by platform: `bluesky` or `hackernews`
-- `--all` - Show all results (no limit)
+- `--platform` - Platform to analyze: `bluesky` or `hackernews`
+- `--hours` - Number of hours to analyze (default: 6)
+- `--start` - Start time for analysis in ISO format (default: hours ago from now)
+
+**What it does:**
+
+For each hour in the analysis window:
+1. Builds a similarity network between accounts based on:
+   - **Synchronized posting** (posts within 90 seconds)
+   - **URL sharing** (same links posted)
+   - **Text similarity** (TF-IDF cosine similarity > 0.8)
+   - **Hashtag overlap** (2+ shared hashtags)
+   - **Reply patterns** (commenting on same posts)
+2. Detects coordination clusters using Louvain community detection
+3. Calculates hourly coordination score (0-100)
+4. Stores metrics for historical tracking
+
+**Coordination Score Components:**
+- **Cluster Coverage** (40%): Percentage of posts from clustered accounts
+- **Cluster Density** (30%): How tightly connected the clusters are
+- **Sync Rate** (30%): Rate of synchronized posting
 
 **Examples:**
 
 ```bash
-# Show first 20 flagged accounts
-purisa flagged
+# Analyze last 6 hours of Bluesky data
+purisa analyze --platform bluesky
 
-# Show all flagged accounts
-purisa flagged --all
+# Analyze last 24 hours
+purisa analyze --platform bluesky --hours 24
 
-# Show only flagged Bluesky accounts
-purisa flagged --platform bluesky
+# Analyze specific time range
+purisa analyze --platform bluesky --hours 12 --start "2026-02-01T00:00:00"
+
+# Analyze all platforms
+purisa analyze
 ```
 
 **Example output:**
 ```
-=== Flagged Accounts ===
+=== Coordination Analysis ===
+Platform: bluesky
+Time range: 2026-02-01 22:00 to 2026-02-02 04:00
+Hours to analyze: 6
 
-Found 3 suspicious accounts:
+Analyzing: 100%|██████████| 6/6 [00:00<00:00, clusters=9, score=49.9]
 
-+-------------------------+----------+-------+-------+-----------+
-| Username                | Platform | Score | Posts | Followers |
-+=========================+==========+=======+=======+===========+
-| bot_news_247.bsky.social| bluesky  |  8.5  |  156  |    12     |
-+-------------------------+----------+-------+-------+-----------+
-| auto_poster             | bluesky  |  7.8  |  203  |     5     |
-+-------------------------+----------+-------+-------+-----------+
-| news_aggregator_bot     | bluesky  |  7.2  |   89  |     0     |
-+-------------------------+----------+-------+-------+-----------+
+=== Analysis Summary ===
+Hours analyzed: 6
+Total posts: 88
+Coordinated posts: 65
+Clusters detected: 9
+Average coordination score: 49.9/100
+Peak coordination score: 100.0/100
+
+=== High Coordination Hours (4) ===
+  2026-02-02 01:00: score=100.0, clusters=5
+  2026-02-02 02:00: score=100.0, clusters=2
+  2026-02-02 00:00: score=65.0, clusters=2
+  2026-02-01 22:00: score=26.7, clusters=0
+```
+
+---
+
+### `purisa spikes`
+
+Detect and display coordination spikes (unusual activity above baseline).
+
+**Usage:**
+```bash
+# Show spikes from last 7 days
+purisa spikes --platform <platform>
+
+# Customize lookback period and threshold
+purisa spikes --platform <platform> --hours <number> --threshold <std_devs>
+```
+
+**Options:**
+- `--platform` - Platform to check: `bluesky` or `hackernews`
+- `--hours` - Hours to look back (default: 168 = 7 days)
+- `--threshold` - Standard deviations above mean to consider a spike (default: 2.0)
+
+**What it does:**
+
+1. Retrieves coordination metrics for the specified time period
+2. Calculates baseline mean and standard deviation
+3. Identifies hours where coordination score exceeds threshold
+4. Displays spikes sorted by magnitude (z-score)
+
+**Examples:**
+
+```bash
+# Show spikes from last 7 days (default)
+purisa spikes --platform bluesky
+
+# Show spikes from last 24 hours
+purisa spikes --platform bluesky --hours 24
+
+# More sensitive detection (1.5 std devs)
+purisa spikes --platform bluesky --threshold 1.5
+
+# Less sensitive detection (3.0 std devs)
+purisa spikes --platform bluesky --threshold 3.0
+```
+
+**Example output:**
+```
+=== Coordination Spikes ===
+Platform: bluesky
+Looking back: 24 hours (1 days)
+Threshold: 2.0 standard deviations
+
++------------------+---------+-------------+------------+---------+
+| Time             |   Score | Magnitude   |   Clusters |   Posts |
++==================+=========+=============+============+=========+
+| 2026-02-02T01:00 |     100 | 2.06σ       |          5 |      40 |
++------------------+---------+-------------+------------+---------+
+| 2026-02-02T02:00 |     100 | 2.06σ       |          2 |      15 |
++------------------+---------+-------------+------------+---------+
+
+Baseline: mean=23.0, std=37.3
 ```
 
 ---
 
 ### `purisa stats`
 
-Show statistics and overview of collected data.
+Show statistics and overview of collected data and coordination analysis.
 
 **Usage:**
 ```bash
@@ -329,29 +313,36 @@ purisa stats --platform bluesky
 
 **Example output:**
 ```
-=== Purisa Statistics ===
+=== Purisa 2.0 Statistics ===
 
-Total Accounts: 156
-Total Posts: 432
-Flagged Accounts: 12
-Flag Rate: 7.7%
+Total Accounts: 1440
+Total Posts: 2228
+Total Clusters Detected: 9
 
 === Platform Breakdown ===
 
 +------------+------------+---------+
 | Platform   |   Accounts |   Posts |
 +============+============+=========+
-| bluesky    |        142 |     398 |
+| bluesky    |         54 |      88 |
 +------------+------------+---------+
-| hackernews |         14 |      34 |
+| hackernews |       1386 |    2140 |
 +------------+------------+---------+
+
+=== Coordination (Last 24 Hours) ===
+
+Hours analyzed: 20
+Average coordination score: 15.0/100
+Peak coordination score: 100.0/100
+Coordinated posts detected: 65
+Active clusters: 9
 ```
 
 ---
 
 ## Workflows
 
-### Basic Bot Detection Workflow
+### Coordination Detection Workflow
 
 1. **Initialize** (first time only)
    ```bash
@@ -363,14 +354,18 @@ Flag Rate: 7.7%
    purisa collect --platform bluesky --query "#politics" --limit 100
    ```
 
-3. **Analyze for Bots**
+3. **Run Coordination Analysis**
    ```bash
-   purisa analyze
+   purisa analyze --platform bluesky --hours 6
    ```
 
-4. **View Results**
+4. **Check for Spikes**
    ```bash
-   purisa flagged
+   purisa spikes --platform bluesky
+   ```
+
+5. **View Statistics**
+   ```bash
    purisa stats
    ```
 
@@ -380,11 +375,11 @@ Flag Rate: 7.7%
 # Collect fresh data
 purisa collect --platform bluesky --query "#election2024" --limit 200
 
-# Analyze new accounts
-purisa analyze --platform bluesky
+# Run coordination analysis
+purisa analyze --platform bluesky --hours 24
 
-# Check for new bots
-purisa flagged --platform bluesky
+# Check for unusual activity
+purisa spikes --platform bluesky --hours 24
 
 # Review statistics
 purisa stats
@@ -428,6 +423,23 @@ purisa stats
 - **Regular monitoring:** `--limit 100-200`
 - **Comprehensive analysis:** `--limit 500+`
 
+### Understanding Coordination Scores
+
+| Score Range | Interpretation |
+|-------------|----------------|
+| 0-20 | Normal organic activity |
+| 20-50 | Elevated coordination (may be natural clustering) |
+| 50-80 | High coordination (warrants investigation) |
+| 80-100 | Very high coordination (likely coordinated campaign) |
+
+### Spike Detection Thresholds
+
+| Threshold | Sensitivity | Use Case |
+|-----------|-------------|----------|
+| 1.5σ | High | Catch subtle coordination |
+| 2.0σ | Medium (default) | Balanced detection |
+| 3.0σ | Low | Only major anomalies |
+
 ### Using Multiple Queries Effectively
 
 The `--query` option can be specified multiple times to collect from different topics in a single command:
@@ -460,24 +472,7 @@ The `--query` option can be specified multiple times to collect from different t
      --limit 50
    ```
 
-3. **Cross-Topic Analysis:**
-   ```bash
-   # Environmental and policy intersection
-   purisa collect --platform bluesky \
-     --query "#climate" \
-     --query "#policy" \
-     --query "#legislation" \
-     --limit 75
-   ```
-
 **Note:** The `--limit` applies **per query**, so `--query A --query B --limit 50` collects 100 total posts (50 from each).
-
-### Reducing False Positives
-
-- Collect more posts per account (higher `--limit`)
-- Run analysis multiple times over days/weeks
-- Manually review high-scoring accounts
-- Adjust thresholds in `backend/.env`
 
 ### Database Management
 
@@ -502,32 +497,25 @@ purisa init
 Edit `backend/.env`:
 
 ```env
-# Detection thresholds
-BOT_DETECTION_THRESHOLD=7.0    # Flag threshold (0-10)
-NEW_ACCOUNT_DAYS=30            # Days to consider "new"
-HIGH_FREQUENCY_THRESHOLD=50    # Posts per hour
-
 # Bluesky credentials
 BLUESKY_HANDLE=your-handle.bsky.social
 BLUESKY_PASSWORD=your-app-password
+
+# Database (default is fine)
+DATABASE_URL=sqlite:///./purisa.db
 ```
 
-### Platform Targets
+### Coordination Detection Settings
 
-Edit `backend/purisa/config/platforms.yaml`:
+Edit `backend/purisa/config/platforms.yaml` or use defaults:
 
 ```yaml
-bluesky:
-  enabled: true
-  targets:
-    hashtags:
-      - politics
-      - election2024
-    keywords:
-      - "supreme court"
-  collection:
-    refresh_interval: 600  # 10 minutes
-    posts_per_cycle: 100
+# Coordination detection thresholds (defaults)
+coordination:
+  sync_window_seconds: 90      # Posts within this window are "synchronized"
+  text_similarity_threshold: 0.8  # Cosine similarity threshold
+  min_cluster_size: 3          # Minimum accounts for a cluster
+  min_cluster_density: 0.3     # Minimum edge density for clusters
 ```
 
 ---
@@ -577,6 +565,15 @@ Verify:
 purisa collect --platform bluesky --query "#test" --limit 10
 ```
 
+### "No coordination detected"
+
+This is normal for organic data! Coordination detection finds unusual patterns. If your data is natural, expect:
+- Low coordination scores (0-20)
+- Few or no clusters detected
+- No spikes above baseline
+
+Try collecting more data or monitoring over a longer period.
+
 ---
 
 ## Advanced Usage
@@ -585,29 +582,34 @@ purisa collect --platform bluesky --query "#test" --limit 10
 
 ```bash
 #!/bin/bash
-# Automated bot detection script
+# Automated coordination monitoring script
 
 # Collect from multiple topics
 for topic in politics technology science; do
     purisa collect --platform bluesky --query "#$topic" --limit 100
 done
 
-# Analyze everything
-purisa analyze
+# Run coordination analysis
+purisa analyze --platform bluesky --hours 24
 
-# Email results (requires mail setup)
-purisa flagged --all > flagged_accounts.txt
-mail -s "Bot Detection Report" admin@example.com < flagged_accounts.txt
+# Check for spikes
+purisa spikes --platform bluesky --hours 24
+
+# Email results if spikes found
+SPIKE_COUNT=$(purisa spikes --platform bluesky --hours 24 | grep -c "σ")
+if [ "$SPIKE_COUNT" -gt 0 ]; then
+    purisa spikes --platform bluesky --hours 24 | mail -s "Coordination Alert" admin@example.com
+fi
 ```
 
 ### Cron Jobs
 
 ```cron
-# Run every 6 hours
+# Collect and analyze every 6 hours
 0 */6 * * * cd /path/to/purisa && ./purisa collect && ./purisa analyze
 
-# Daily summary at 9 AM
-0 9 * * * cd /path/to/purisa && ./purisa stats | mail -s "Daily Bot Stats" admin@example.com
+# Daily spike report at 9 AM
+0 9 * * * cd /path/to/purisa && ./purisa spikes --hours 168 | mail -s "Weekly Coordination Report" admin@example.com
 ```
 
 ---
@@ -619,28 +621,28 @@ The CLI works alongside the web API. You can:
 1. **Collect via CLI, view via dashboard:**
    ```bash
    purisa collect --platform bluesky --query "#politics" --limit 200
+   purisa analyze --platform bluesky
    # Then visit http://localhost:3000
    ```
 
-2. **Trigger collection via API:**
+2. **Get coordination metrics via API:**
    ```bash
-   # Collect with query and harvest comments
-   curl -X POST "http://localhost:8000/api/collection/trigger?platform=bluesky&query=%23politics&limit=100&harvest_comments=true"
+   curl http://localhost:8000/api/coordination/metrics?platform=bluesky | jq .
    ```
 
-3. **Trigger analysis programmatically:**
+3. **Get coordination spikes via API:**
    ```bash
-   curl -X POST http://localhost:8000/api/analysis/trigger
+   curl "http://localhost:8000/api/coordination/spikes?platform=bluesky&hours=168" | jq .
    ```
 
-4. **Export data:**
+4. **Get coordination timeline:**
    ```bash
-   curl http://localhost:8000/api/accounts/flagged | jq . > flagged.json
+   curl "http://localhost:8000/api/coordination/timeline?platform=bluesky&hours=24" | jq .
    ```
 
-5. **Get comment statistics:**
+5. **Trigger analysis programmatically:**
    ```bash
-   curl http://localhost:8000/api/stats/comments | jq .
+   curl -X POST "http://localhost:8000/api/coordination/analyze?platform=bluesky&hours=6"
    ```
 
 ---
@@ -656,7 +658,7 @@ The CLI works alongside the web API. You can:
 
 ## Version
 
-CLI Version: 1.0.0
-Purisa Backend: FastAPI + SQLAlchemy + Detoxify ML
+CLI Version: 2.0.0
+Purisa Backend: FastAPI + SQLAlchemy + NetworkX + scikit-learn
 Frontend: React 19 + shadcn/ui
-Last Updated: 2026-01-26
+Last Updated: 2026-02-01

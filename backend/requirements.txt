@@ -22,5 +22,10 @@ apscheduler==3.11.2
 # ML/Toxicity detection
 detoxify>=0.5.2
 
+# Coordination detection (2.0)
+networkx>=3.2
+scikit-learn>=1.4
+pandas>=2.1
+
 # Additional utilities
 python-multipart==0.0.6

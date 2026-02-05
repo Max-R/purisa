@@ -162,7 +162,7 @@ Multi-platform social media coordination detection system. Analyzes Bluesky (pri
 #### Documentation
 - [x] Comprehensive README.md
 - [x] CLI_MANUAL.md - Complete CLI reference (updated for 2.0)
-- [x] AGENTS.md (this file)
+- [x] CHANGELOG.md (this file)
 - [x] .env.example with all variables
 - [x] Code comments and docstrings
 - [x] Type hints throughout

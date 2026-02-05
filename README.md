@@ -127,7 +127,7 @@ purisa/
 │   │   └── index.tsx            # Entry point
 │   └── package.json
 ├── cli.py                       # CLI tool
-├── AGENTS.md                    # Development progress
+├── CHANGELOG.md                    # Development progress
 ├── CLI_MANUAL.md                # CLI documentation
 └── README.md
 ```
@@ -519,7 +519,7 @@ This is normal for organic data! Coordination detection finds unusual patterns:
 
 ## Contributing
 
-Contributions welcome! Please see AGENTS.md for current development status.
+Contributions welcome! Please see CHANGELOG.md for current development status.
 
 Areas we'd love help with:
 - Additional platform adapters (Mastodon, Reddit, etc.)

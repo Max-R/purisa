@@ -66,8 +66,22 @@ class JobExecutor:
     """
 
     def __init__(self):
-        self.collector = UniversalCollector()
-        self.analyzer = CoordinationAnalyzer()
+        # Lazy-initialized to avoid blocking the event loop at startup
+        # (BlueskyPlatform.__init__ does a synchronous HTTP login)
+        self._collector = None
+        self._analyzer = None
+
+    @property
+    def collector(self):
+        if self._collector is None:
+            self._collector = UniversalCollector()
+        return self._collector
+
+    @property
+    def analyzer(self):
+        if self._analyzer is None:
+            self._analyzer = CoordinationAnalyzer()
+        return self._analyzer
 
     async def execute_job(self, job_id: int) -> JobExecutionDB:
         """

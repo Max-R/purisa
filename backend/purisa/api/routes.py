@@ -1,6 +1,7 @@
 """FastAPI routes and endpoints."""
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -1252,43 +1253,61 @@ async def list_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CreateJobRequest(BaseModel):
+    """Request body for creating a scheduled job."""
+    name: str
+    platform: str
+    queries: List[str]
+    cron_expression: str = Field(alias="cronExpression", default="0 */6 * * *")
+    collect_limit: int = Field(alias="collectLimit", default=100, ge=1, le=10000)
+    analysis_hours: int = Field(alias="analysisHours", default=6, ge=1, le=168)
+    harvest_comments: bool = Field(alias="harvestComments", default=True)
+
+    model_config = {"populate_by_name": True}
+
+
+class UpdateJobRequest(BaseModel):
+    """Request body for updating a scheduled job (all fields optional)."""
+    name: Optional[str] = None
+    queries: Optional[List[str]] = None
+    cron_expression: Optional[str] = Field(alias="cronExpression", default=None)
+    collect_limit: Optional[int] = Field(alias="collectLimit", default=None, ge=1, le=10000)
+    analysis_hours: Optional[int] = Field(alias="analysisHours", default=None, ge=1, le=168)
+    harvest_comments: Optional[bool] = Field(alias="harvestComments", default=None)
+    enabled: Optional[bool] = None
+
+    model_config = {"populate_by_name": True}
+
+
 @router.post("/jobs")
-async def create_job(
-    name: str = Query(..., description="Job name"),
-    platform: str = Query(..., description="Target platform"),
-    queries: str = Query(..., description="Comma-separated search queries"),
-    cron_expression: str = Query(..., description="Cron schedule (5-field)"),
-    collect_limit: int = Query(100, ge=1, le=10000, description="Posts per query"),
-    analysis_hours: int = Query(6, ge=1, le=168, description="Hours of data to analyze"),
-    harvest_comments: bool = Query(True, description="Harvest comments from top posts"),
-):
+async def create_job(request: CreateJobRequest):
     """Create a new scheduled job."""
     try:
         # Validate cron expression
         from apscheduler.triggers.cron import CronTrigger
         try:
-            CronTrigger.from_crontab(cron_expression)
+            CronTrigger.from_crontab(request.cron_expression)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid cron expression: {e}")
 
         # Validate platform
-        if platform not in ('bluesky', 'hackernews'):
-            raise HTTPException(status_code=400, detail=f"Invalid platform: {platform}")
+        if request.platform not in ('bluesky', 'hackernews'):
+            raise HTTPException(status_code=400, detail=f"Invalid platform: {request.platform}")
 
-        query_list = [q.strip() for q in queries.split(',') if q.strip()]
+        query_list = [q.strip() for q in request.queries if q.strip()]
         if not query_list:
             raise HTTPException(status_code=400, detail="At least one query is required")
 
         db = get_database()
         with db.get_session() as session:
             job = ScheduledJobDB(
-                name=name,
-                platform=platform,
+                name=request.name,
+                platform=request.platform,
                 queries=query_list,
-                cron_expression=cron_expression,
-                collect_limit=collect_limit,
-                analysis_hours=analysis_hours,
-                harvest_comments=1 if harvest_comments else 0,
+                cron_expression=request.cron_expression,
+                collect_limit=request.collect_limit,
+                analysis_hours=request.analysis_hours,
+                harvest_comments=1 if request.harvest_comments else 0,
                 enabled=1,
             )
             session.add(job)
@@ -1298,17 +1317,17 @@ async def create_job(
             # Register with scheduler
             scheduler = get_scheduler()
             if scheduler:
-                scheduler.add_job(job_id, cron_expression)
+                scheduler.add_job(job_id, request.cron_expression)
 
             return {
                 'id': job_id,
-                'name': name,
-                'platform': platform,
+                'name': request.name,
+                'platform': request.platform,
                 'queries': query_list,
-                'cron_expression': cron_expression,
-                'collect_limit': collect_limit,
-                'analysis_hours': analysis_hours,
-                'harvest_comments': 1 if harvest_comments else 0,
+                'cron_expression': request.cron_expression,
+                'collect_limit': request.collect_limit,
+                'analysis_hours': request.analysis_hours,
+                'harvest_comments': 1 if request.harvest_comments else 0,
                 'enabled': 1,
                 'created_at': datetime.now().isoformat(),
                 'updated_at': datetime.now().isoformat(),
@@ -1369,16 +1388,7 @@ async def get_job(job_id: int):
 
 
 @router.put("/jobs/{job_id}")
-async def update_job(
-    job_id: int,
-    name: Optional[str] = Query(None),
-    queries: Optional[str] = Query(None, description="Comma-separated queries"),
-    cron_expression: Optional[str] = Query(None),
-    collect_limit: Optional[int] = Query(None, ge=1, le=10000),
-    analysis_hours: Optional[int] = Query(None, ge=1, le=168),
-    harvest_comments: Optional[bool] = Query(None),
-    enabled: Optional[bool] = Query(None),
-):
+async def update_job(job_id: int, request: UpdateJobRequest):
     """Update an existing scheduled job (partial update)."""
     try:
         db = get_database()
@@ -1389,33 +1399,33 @@ async def update_job(
             if not job:
                 raise HTTPException(status_code=404, detail="Job not found")
 
-            if name is not None:
-                job.name = name
-            if queries is not None:
-                query_list = [q.strip() for q in queries.split(',') if q.strip()]
+            if request.name is not None:
+                job.name = request.name
+            if request.queries is not None:
+                query_list = [q.strip() for q in request.queries if q.strip()]
                 if not query_list:
                     raise HTTPException(status_code=400, detail="At least one query required")
                 job.queries = query_list
-            if cron_expression is not None:
+            if request.cron_expression is not None:
                 from apscheduler.triggers.cron import CronTrigger
                 try:
-                    CronTrigger.from_crontab(cron_expression)
+                    CronTrigger.from_crontab(request.cron_expression)
                 except Exception as e:
                     raise HTTPException(status_code=400, detail=f"Invalid cron expression: {e}")
-                job.cron_expression = cron_expression
-            if collect_limit is not None:
-                job.collect_limit = collect_limit
-            if analysis_hours is not None:
-                job.analysis_hours = analysis_hours
-            if harvest_comments is not None:
-                job.harvest_comments = 1 if harvest_comments else 0
-            if enabled is not None:
-                job.enabled = 1 if enabled else 0
+                job.cron_expression = request.cron_expression
+            if request.collect_limit is not None:
+                job.collect_limit = request.collect_limit
+            if request.analysis_hours is not None:
+                job.analysis_hours = request.analysis_hours
+            if request.harvest_comments is not None:
+                job.harvest_comments = 1 if request.harvest_comments else 0
+            if request.enabled is not None:
+                job.enabled = 1 if request.enabled else 0
 
             job.updated_at = datetime.now()
 
             # Update scheduler if cron or enabled changed
-            if scheduler and (cron_expression is not None or enabled is not None):
+            if scheduler and (request.cron_expression is not None or request.enabled is not None):
                 scheduler.update_job(
                     job_id,
                     job.cron_expression,

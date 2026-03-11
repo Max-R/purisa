@@ -3,7 +3,24 @@
 ## Project Overview
 Multi-platform social media coordination detection system. Analyzes Bluesky (primary) and Hacker News (secondary) for coordinated inauthentic behavior patterns using network analysis.
 
-**Current Version**: 2.1.0 (Scheduling System + Live UI Updates)
+**Current Version**: 2.2.0 (Coordination Visualization Dashboard)
+
+## Phase 3: Dashboard Restructuring + Coordination Visualization
+
+### Changes
+- **Removed**: AccountsTable, Score Legend, useAccounts hook, legacy StatsCards (bot-scoring UI)
+- **Added**: Interactive coordination timeline (recharts AreaChart with tooltips)
+- **Added**: CoordinationStatsCards — posts analyzed, peak score, clusters, coordinated posts, avg score
+- **Added**: ClustersTable — expandable rows showing cluster members and centrality scores
+- **Added**: SpikesAlert — dismissible banner when coordination spikes detected above baseline
+- **Added**: useCoordination hook — fetches timeline, clusters, stats, and spikes in parallel
+- **Added**: Coordination API client methods (timeline, clusters, stats, spikes)
+- **Fixed**: Job create/update API switched from query params to JSON body (fixes comma-in-query bug)
+- **Fixed**: Pydantic request models (CreateJobRequest, UpdateJobRequest) with camelCase alias support
+
+## Phase 2: Scheduling System + Live UI Updates (v2.1.0)
+
+## Phase 1: Coordination Detection (v2.0.0)
 
 ## Current Phase: Phase 2 Complete (Coordination Detection)
 

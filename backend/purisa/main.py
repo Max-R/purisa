@@ -63,9 +63,9 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Purisa Bot Detection API",
-    description="Multi-platform social media bot detection system",
-    version="2.1.0",
+    title="Purisa Coordination Detection API",
+    description="Multi-platform social media coordination detection system",
+    version="2.2.0",
     lifespan=lifespan
 )
 

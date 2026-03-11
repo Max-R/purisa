@@ -172,8 +172,8 @@ class CoordinationAnalyzer:
                 platform, hour_start, hour_end, posts, graph, clusters
             )
 
-            # Store results in database
-            self._store_results(session, result)
+            # Store results in database (pass graph for edge storage)
+            self._store_results(session, result, graph=graph)
 
             return result
 
@@ -278,28 +278,30 @@ class CoordinationAnalyzer:
                 CoordinationMetricDB.bucket_type == 'hourly'
             ).order_by(CoordinationMetricDB.time_bucket).all()
 
-            if len(metrics) < 10:
+            if len(metrics) < 24:
                 return []
 
-            scores = [m.coordination_score for m in metrics]
-            mean_score = np.mean(scores)
-            std_score = np.std(scores)
+            scores = np.array([m.coordination_score for m in metrics])
+            median_score = float(np.median(scores))
+            mad = float(np.median(np.abs(scores - median_score)))
+            # Scale MAD to be comparable to std deviation for normal distributions
+            mad_std = mad * 1.4826
 
-            if std_score == 0:
+            if mad_std == 0:
                 return []
 
             spikes = []
             for m in metrics:
-                z_score = (m.coordination_score - mean_score) / std_score
-                if z_score >= threshold_std:
+                deviation = (m.coordination_score - median_score) / mad_std
+                if deviation >= threshold_std:
                     spikes.append({
                         'time_bucket': m.time_bucket.isoformat(),
                         'coordination_score': m.coordination_score,
-                        'z_score': float(z_score),
+                        'z_score': float(deviation),
                         'total_posts': m.total_posts_analyzed,
                         'cluster_count': m.active_cluster_count,
-                        'baseline_mean': float(mean_score),
-                        'baseline_std': float(std_score),
+                        'baseline_median': median_score,
+                        'baseline_mad_std': mad_std,
                     })
 
             return sorted(spikes, key=lambda x: x['z_score'], reverse=True)
@@ -372,6 +374,7 @@ class CoordinationAnalyzer:
     ) -> List[Tuple[str, str, Dict]]:
         """Find pairs of accounts posting within sync window."""
         edges = []
+        seen_pairs: Set[Tuple[str, str]] = set()
 
         # Sort posts by time
         sorted_posts = sorted(posts, key=lambda p: p.created_at)
@@ -385,6 +388,11 @@ class CoordinationAnalyzer:
                     break  # No more posts within window
 
                 if post1.account_id != post2.account_id:
+                    pair_key = tuple(sorted([post1.account_id, post2.account_id]))
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
+
                     edges.append((
                         post1.account_id,
                         post2.account_id,
@@ -490,7 +498,8 @@ class CoordinationAnalyzer:
             communities = louvain_communities(
                 G,
                 resolution=self.config.louvain_resolution,
-                weight='weight'
+                weight='weight',
+                seed=42
             )
 
             clusters = []
@@ -551,9 +560,17 @@ class CoordinationAnalyzer:
         for cluster in clusters:
             clustered_accounts.update(cluster.members)
 
-        # Count coordinated vs organic posts
+        # Count coordinated posts: only posts that are endpoints of at least one edge
+        # AND belong to a clustered account (not all posts by cluster members)
+        edge_account_ids: Set[str] = set()
+        for a1, a2 in graph.edges():
+            if a1 in clustered_accounts:
+                edge_account_ids.add(a1)
+            if a2 in clustered_accounts:
+                edge_account_ids.add(a2)
+
         coordinated_posts = sum(
-            1 for p in posts if p.account_id in clustered_accounts
+            1 for p in posts if p.account_id in edge_account_ids
         )
         organic_posts = total_posts - coordinated_posts
 
@@ -566,21 +583,21 @@ class CoordinationAnalyzer:
             1 for _, _, data in graph.edges(data=True)
             if 'synchronized_posting' in data.get('types', set())
         )
-        sync_rate = (sync_edges * 2) / total_posts if total_posts > 0 else 0  # *2 because each edge involves 2 posts
+        sync_rate = min((sync_edges * 2) / total_posts, 1.0) if total_posts > 0 else 0.0
 
         # URL sharing rate
         url_edges = sum(
             1 for _, _, data in graph.edges(data=True)
             if 'url' in data.get('types', set())
         )
-        url_rate = (url_edges * 2) / total_posts if total_posts > 0 else 0
+        url_rate = min((url_edges * 2) / total_posts, 1.0) if total_posts > 0 else 0.0
 
         # Text similarity rate
         text_edges = sum(
             1 for _, _, data in graph.edges(data=True)
             if 'text' in data.get('types', set())
         )
-        text_rate = (text_edges * 2) / total_posts if total_posts > 0 else 0
+        text_rate = min((text_edges * 2) / total_posts, 1.0) if total_posts > 0 else 0.0
 
         # Calculate coordination score (0-100)
         coordination_score = (
@@ -608,7 +625,7 @@ class CoordinationAnalyzer:
             spike_magnitude=0.0,
         )
 
-    def _store_results(self, session: Session, result: CoordinationResult):
+    def _store_results(self, session: Session, result: CoordinationResult, graph: Optional[nx.Graph] = None):
         """Store analysis results in database."""
         try:
             # Store or update metric
@@ -617,6 +634,8 @@ class CoordinationAnalyzer:
                 CoordinationMetricDB.time_bucket == result.time_window_start,
                 CoordinationMetricDB.bucket_type == 'hourly'
             ).first()
+
+            insufficient = 1 if result.total_posts < self.config.min_cluster_size else 0
 
             if metric:
                 # Update existing
@@ -629,6 +648,7 @@ class CoordinationAnalyzer:
                 metric.synchronized_posting_rate = result.sync_rate
                 metric.url_sharing_rate = result.url_sharing_rate
                 metric.text_similarity_rate = result.text_similarity_rate
+                metric.insufficient_data = insufficient
             else:
                 # Create new
                 metric = CoordinationMetricDB(
@@ -644,6 +664,7 @@ class CoordinationAnalyzer:
                     synchronized_posting_rate=result.sync_rate,
                     url_sharing_rate=result.url_sharing_rate,
                     text_similarity_rate=result.text_similarity_rate,
+                    insufficient_data=insufficient,
                 )
                 session.add(metric)
 
@@ -687,6 +708,29 @@ class CoordinationAnalyzer:
                         edge_count=cluster.edge_count,
                     )
                     session.add(member)
+
+            # Store edges from graph (idempotent: delete old edges first)
+            if graph is not None and graph.number_of_edges() > 0:
+                session.query(AccountEdgeDB).filter(
+                    AccountEdgeDB.platform == result.platform,
+                    AccountEdgeDB.time_window_start == result.time_window_start,
+                    AccountEdgeDB.time_window_end == result.time_window_end,
+                ).delete(synchronize_session=False)
+
+                for a1, a2, data in graph.edges(data=True):
+                    for edge_type in data.get('types', set()):
+                        edge_evidence = data.get('evidence', {}).get(edge_type, {})
+                        edge_db = AccountEdgeDB(
+                            account_id_1=a1,
+                            account_id_2=a2,
+                            platform=result.platform,
+                            edge_type=edge_type,
+                            similarity_score=data.get('weight', 0.0),
+                            time_window_start=result.time_window_start,
+                            time_window_end=result.time_window_end,
+                            evidence=edge_evidence,
+                        )
+                        session.add(edge_db)
 
             session.commit()
             logger.info(f"Stored coordination results for {result.platform} at {result.time_window_start}")

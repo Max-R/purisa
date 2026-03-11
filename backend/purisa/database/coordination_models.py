@@ -125,6 +125,7 @@ class CoordinationMetricDB(Base):
     synchronized_posting_rate = Column(Float, default=0.0)  # % of posts within sync window
     url_sharing_rate = Column(Float, default=0.0)  # % of posts sharing same URLs
     text_similarity_rate = Column(Float, default=0.0)  # % of posts with high text similarity
+    insufficient_data = Column(Integer, default=0)  # SQLite boolean: 1=too few posts for reliable analysis, 0=ok
     top_topics = Column(JSON, default=list)  # [{topic, coordinated_count}, ...]
     metric_metadata = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.now)

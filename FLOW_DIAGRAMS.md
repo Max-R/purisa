@@ -220,12 +220,14 @@ Edges are created between accounts that exhibit coordinated behavior within a 1-
 | Signal | Weight | Detection Method | Source |
 |--------|--------|-----------------|--------|
 | **Synchronized Posting** | 1.0 | Posts within 90 seconds of each other | `coordination.py` |
-| **URL Sharing** | 1.5 | Sharing the same normalized URLs | `similarity.py` |
+| **URL Sharing** | 1.5 | Sharing the same URLs (rarity-weighted) | `similarity.py` |
 | **Text Similarity** | 1.0 | TF-IDF cosine similarity > 0.8 | `similarity.py` |
 | **Hashtag Overlap** | 0.5 | 2+ shared hashtags (Jaccard similarity) | `similarity.py` |
 | **Reply Patterns** | 0.8 | Commenting on the same parent posts | `coordination.py` |
 
 Edge weights are **cumulative** — if two accounts share a URL AND post synchronously, their edge weight is 1.0 + 1.5 = 2.5.
+
+**Deduplication:** Synchronized posting pairs are deduplicated per account pair (one edge per pair regardless of how many posts overlap). URL sharing uses inverse-frequency rarity weighting — viral URLs shared by many accounts score lower (0.1) while rare URLs score higher (1.0). TF-IDF text similarity requires a minimum corpus of 5 posts for meaningful IDF weights. Louvain community detection uses `seed=42` for deterministic results.
 
 ### Coordination Score Formula
 
@@ -272,15 +274,16 @@ flowchart TD
         SCORES["Extract coordination_score<br/>for each hour"]
     end
 
-    subgraph Stats["3. BASELINE CALCULATION"]
-        MEAN["Calculate mean score"]
-        STD["Calculate standard deviation"]
+    subgraph Stats["3. BASELINE CALCULATION (MAD)"]
+        MEDIAN["Calculate median score"]
+        MAD["Calculate MAD<br/>(Median Absolute Deviation)"]
+        SCALE["Scale: mad_std = MAD * 1.4826"]
     end
 
     subgraph Detect["4. SPIKE DETECTION"]
-        ZSCORE["For each hour:<br/>z_score = (score - mean) / std"]
-        FILTER["Filter: z_score >= threshold<br/>(default: 2.0 std devs)"]
-        SORT["Sort by z_score descending"]
+        ZSCORE["For each hour:<br/>deviation = (score - median) / mad_std"]
+        FILTER["Filter: deviation >= threshold<br/>(default: 2.0)"]
+        SORT["Sort by deviation descending"]
     end
 
     subgraph Output["5. OUTPUT"]
@@ -289,8 +292,9 @@ flowchart TD
 
     CLI --> FETCH
     API --> FETCH
-    FETCH --> SCORES --> MEAN & STD
-    MEAN & STD --> ZSCORE --> FILTER --> SORT --> RESULT
+    FETCH --> SCORES --> MEDIAN & MAD
+    MAD --> SCALE
+    MEDIAN & SCALE --> ZSCORE --> FILTER --> SORT --> RESULT
 ```
 
 ### Spike Detection Thresholds
@@ -363,6 +367,7 @@ COORDINATION TABLES (coordination_models.py)
 | total_posts_analyzed      |     | source           |     | notes                  |
 | coordinated_posts_count   |     +------------------+     +------------------------+
 | active_cluster_count      |
+| insufficient_data         |
 | sync/url/text rates       |
 +---------------------------+
 ```

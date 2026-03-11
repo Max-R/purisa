@@ -161,8 +161,8 @@ class TextSimilarityCalculator:
         if threshold is None:
             threshold = self.similarity_threshold
 
-        if len(posts) < 2:
-            return []
+        if len(posts) < 5:
+            return []  # TF-IDF needs sufficient corpus for meaningful IDF weights
 
         # Preprocess and filter posts
         valid_posts = []
@@ -246,6 +246,9 @@ def find_url_sharing_pairs(
                 url_to_posts[url] = []
             url_to_posts[url].append((post_id, account_id))
 
+    # Count unique accounts sharing each URL for rarity weighting
+    total_accounts = len(set(account_id for _, (account_id, _) in post_urls.items()))
+
     # Find pairs sharing URLs
     results = []
     seen_pairs = set()
@@ -253,6 +256,14 @@ def find_url_sharing_pairs(
     for url, posts_with_url in url_to_posts.items():
         if len(posts_with_url) < 2:
             continue
+
+        # Rarity score: URLs shared by many accounts are less suspicious
+        # (viral news = normal), rare URLs shared by few = more suspicious
+        unique_accounts_sharing = len(set(aid for _, aid in posts_with_url))
+        if total_accounts > 1:
+            rarity_score = max(1.0 - (unique_accounts_sharing - 2) / total_accounts, 0.1)
+        else:
+            rarity_score = 1.0
 
         # Create pairs from posts sharing this URL
         for i, (post1_id, account1_id) in enumerate(posts_with_url):
@@ -270,12 +281,14 @@ def find_url_sharing_pairs(
                 results.append(SimilarityResult(
                     item1_id=post1_id,
                     item2_id=post2_id,
-                    similarity_score=1.0,  # URL match is exact
+                    similarity_score=rarity_score,
                     similarity_type='url',
                     evidence={
                         'account1': account1_id,
                         'account2': account2_id,
                         'shared_url': url,
+                        'url_rarity': rarity_score,
+                        'accounts_sharing': unique_accounts_sharing,
                     }
                 ))
 

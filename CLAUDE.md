@@ -98,7 +98,7 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 3. Edges created from: sync posting (90s window), URL sharing, TF-IDF similarity (>0.8), hashtag overlap, reply patterns
 4. Louvain community detection → clusters (min size 3, min density 0.3)
 5. Coordination score (0-100) stored in `CoordinationMetricDB`
-6. Spike detection via z-score analysis (default: 2.0 std devs)
+6. Spike detection via MAD (Median Absolute Deviation) analysis (default: 2.0 threshold, min 24 samples)
 
 ## Known Gotchas
 
@@ -107,6 +107,9 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 - **CLI .env loading**: `cli.py` lines 20-24 explicitly load `backend/.env` via dotenv — needed because CLI runs from project root
 - **cluster_id**: Uses `time_window_start.strftime()` not `datetime.now()` — enables idempotent re-analysis
 - **Coordination model registration**: `connection.py` imports `coordination_models` to ensure tables are created
+- **Louvain determinism**: `seed=42` in `louvain_communities()` ensures reproducible cluster detection
+- **AccountEdgeDB**: Populated by `_store_results()` — edges are written per analysis run (old edges deleted first for idempotency)
+- **Rate clamping**: `sync_rate`, `url_rate`, `text_rate` are clamped to [0.0, 1.0] in `_calculate_metrics()`
 - **Tailwind**: Must be compiled separately — `start.sh` runs `bunx tailwindcss` in watch mode alongside Bun dev server
 
 ## Testing

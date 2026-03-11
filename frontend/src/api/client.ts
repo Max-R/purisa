@@ -5,6 +5,7 @@ import axios, { AxiosInstance } from 'axios'
 import type { AccountWithScore } from '../types/account'
 import type { Post } from '../types/post'
 import type { Stats, CommentStats } from '../types/detection'
+import type { ScheduledJob, JobExecution, CreateJobParams, UpdateJobParams } from '../types/schedule'
 
 class ApiClient {
   private client: AxiosInstance
@@ -286,6 +287,123 @@ class ApiClient {
         signals: data.score.signals,
         flagged: data.score.flagged
       } : undefined
+    }
+  }
+
+  // ─── Scheduled Jobs ───────────────────────────────────────
+
+  /**
+   * Transform API job response to frontend type
+   */
+  private transformJob(raw: any): ScheduledJob {
+    return {
+      id: raw.id,
+      name: raw.name,
+      platform: raw.platform,
+      queries: raw.queries || [],
+      cronExpression: raw.cron_expression,
+      collectLimit: raw.collect_limit,
+      analysisHours: raw.analysis_hours,
+      harvestComments: Boolean(raw.harvest_comments),
+      enabled: Boolean(raw.enabled),
+      createdAt: raw.created_at,
+      updatedAt: raw.updated_at,
+      nextRunAt: raw.next_run_at || null,
+      lastExecution: raw.last_execution ? this.transformExecution(raw.last_execution) : null,
+    }
+  }
+
+  /**
+   * Transform API execution response to frontend type
+   */
+  private transformExecution(raw: any): JobExecution {
+    return {
+      id: raw.id,
+      jobId: raw.job_id,
+      status: raw.status,
+      startedAt: raw.started_at,
+      completedAt: raw.completed_at,
+      durationSeconds: raw.duration_seconds,
+      postsCollected: raw.posts_collected,
+      accountsDiscovered: raw.accounts_discovered,
+      commentsCollected: raw.comments_collected,
+      coordinationScore: raw.coordination_score,
+      clustersDetected: raw.clusters_detected,
+      errorMessage: raw.error_message,
+    }
+  }
+
+  /**
+   * List all scheduled jobs
+   */
+  async getJobs(platform?: string): Promise<ScheduledJob[]> {
+    const params: any = {}
+    if (platform) params.platform = platform
+
+    const response = await this.client.get('/jobs', { params })
+    return response.data.jobs.map((j: any) => this.transformJob(j))
+  }
+
+  /**
+   * Create a new scheduled job
+   */
+  async createJob(params: CreateJobParams): Promise<ScheduledJob> {
+    const queryParams: any = {
+      name: params.name,
+      platform: params.platform,
+      queries: params.queries.join(','),
+      cron_expression: params.cronExpression,
+    }
+    if (params.collectLimit !== undefined) queryParams.collect_limit = params.collectLimit
+    if (params.analysisHours !== undefined) queryParams.analysis_hours = params.analysisHours
+    if (params.harvestComments !== undefined) queryParams.harvest_comments = params.harvestComments
+
+    const response = await this.client.post('/jobs', null, { params: queryParams })
+    return this.transformJob(response.data)
+  }
+
+  /**
+   * Update a scheduled job
+   */
+  async updateJob(jobId: number, params: UpdateJobParams): Promise<ScheduledJob> {
+    const queryParams: any = {}
+    if (params.name !== undefined) queryParams.name = params.name
+    if (params.queries !== undefined) queryParams.queries = params.queries.join(',')
+    if (params.cronExpression !== undefined) queryParams.cron_expression = params.cronExpression
+    if (params.collectLimit !== undefined) queryParams.collect_limit = params.collectLimit
+    if (params.analysisHours !== undefined) queryParams.analysis_hours = params.analysisHours
+    if (params.harvestComments !== undefined) queryParams.harvest_comments = params.harvestComments
+    if (params.enabled !== undefined) queryParams.enabled = params.enabled
+
+    const response = await this.client.put(`/jobs/${jobId}`, null, { params: queryParams })
+    return this.transformJob(response.data)
+  }
+
+  /**
+   * Delete a scheduled job
+   */
+  async deleteJob(jobId: number): Promise<void> {
+    await this.client.delete(`/jobs/${jobId}`)
+  }
+
+  /**
+   * Trigger immediate execution of a job
+   */
+  async runJobNow(jobId: number): Promise<{ status: string; execution_id: number }> {
+    const response = await this.client.post(`/jobs/${jobId}/run`)
+    return response.data
+  }
+
+  /**
+   * Get execution history for a job
+   */
+  async getJobHistory(jobId: number, limit: number = 20, offset: number = 0): Promise<{ executions: JobExecution[]; total: number }> {
+    const response = await this.client.get(`/jobs/${jobId}/history`, {
+      params: { limit, offset }
+    })
+    return {
+      executions: response.data.executions.map((e: any) => this.transformExecution(e)),
+      total: response.data.total,
     }
   }
 }

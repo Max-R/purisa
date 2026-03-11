@@ -3,7 +3,7 @@
 ## Project Overview
 Multi-platform social media coordination detection system. Analyzes Bluesky (primary) and Hacker News (secondary) for coordinated inauthentic behavior patterns using network analysis.
 
-**Current Version**: 2.0.0 (Coordination Detection)
+**Current Version**: 2.1.0 (Scheduling System + Live UI Updates)
 
 ## Current Phase: Phase 2 Complete (Coordination Detection)
 
@@ -189,11 +189,42 @@ Multi-platform social media coordination detection system. Analyzes Bluesky (pri
 - [x] Deduplicate synchronized posting pairs — one edge per account pair
 - [x] Add `insufficient_data` flag to CoordinationMetricDB — distinguishes "no coordination" from "not enough data"
 
+#### Scheduling System (NEW in 2.1)
+- [x] New database tables for job scheduling:
+  - [x] ScheduledJobDB - Cron-based recurring job definitions
+  - [x] JobExecutionDB - Execution history (no FK, survives job deletion)
+- [x] JobScheduler service (`scheduler.py`)
+  - [x] APScheduler with AsyncIOScheduler + CronTrigger
+  - [x] Database persistence — jobs survive server restarts
+  - [x] Dynamic job management (add/update/remove at runtime)
+- [x] JobExecutor service (`job_executor.py`)
+  - [x] Collect → analyze pipeline per job
+  - [x] SSE event bus for real-time updates (asyncio.Queue-based pub/sub)
+  - [x] Event types: job_started, job_progress, job_completed, job_failed
+- [x] Job API endpoints:
+  - [x] GET /api/jobs — List jobs with next_run_at and last_execution
+  - [x] POST /api/jobs — Create job (validates cron expression)
+  - [x] GET /api/jobs/events/stream — SSE event stream
+  - [x] GET /api/jobs/{id} — Job detail
+  - [x] PUT /api/jobs/{id} — Partial update (name, queries, cron, enabled)
+  - [x] DELETE /api/jobs/{id} — Delete (preserves execution history)
+  - [x] POST /api/jobs/{id}/run — Manual trigger (async)
+  - [x] GET /api/jobs/{id}/history — Execution history (paginated)
+- [x] Frontend SchedulePanel component
+  - [x] Job CRUD with dialog form
+  - [x] CronInput with preset buttons and human-readable descriptions
+  - [x] SSE connection indicator (green/red dot)
+  - [x] Run Now, Edit, Pause/Enable, Delete actions
+  - [x] Inline execution history table
+  - [x] Auto-refresh dashboard on job completion via SSE
+- [x] Frontend hooks:
+  - [x] useScheduledJobs — CRUD operations with optimistic updates
+  - [x] useJobEvents — SSE connection with event dispatch
+
 ### In Progress 🚧
 
 - [ ] Frontend dashboard redesign for coordination timeline view
 - [ ] Coordination visualization components
-- [ ] Scheduling system for recurring collection/analysis jobs
 
 ### Blocked ⛔
 
@@ -439,4 +470,4 @@ _From testing on 2026-02-01_
 ---
 
 Last Updated: 2026-03-11
-Version: 2.0.1 (Detection Accuracy Fixes)
+Version: 2.1.0 (Scheduling System + Live UI Updates)

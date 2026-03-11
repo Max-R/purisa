@@ -7,6 +7,7 @@ import logging
 from .models import Base
 # Import coordination models to register them with Base
 from . import coordination_models  # noqa: F401
+from . import job_models  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

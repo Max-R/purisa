@@ -307,6 +307,73 @@ flowchart TD
 
 ---
 
+## Scheduling Flow
+
+How recurring collection/analysis jobs are managed and executed.
+
+```mermaid
+flowchart TD
+    subgraph Setup["1. JOB CREATION"]
+        UI["Dashboard SchedulePanel<br/>Create Job Dialog"]
+        API_CREATE["POST /api/jobs<br/>name, platform, queries,<br/>cron_expression, limits"]
+        DB_INSERT["Insert ScheduledJobDB"]
+        SCHED_REG["Register with APScheduler<br/>CronTrigger.from_crontab()"]
+    end
+
+    subgraph Trigger["2. TRIGGER"]
+        CRON["APScheduler cron trigger<br/>(automatic)"]
+        MANUAL["POST /api/jobs/{id}/run<br/>(manual via UI)"]
+    end
+
+    subgraph Execute["3. JOB EXECUTION"]
+        LOAD["Load job config from DB<br/>(snapshot, close session)"]
+        EXEC_REC["Create JobExecutionDB<br/>status='running'"]
+        SSE_START["Publish SSE: job_started"]
+        COLLECT["For each query:<br/>collector.collect_from_platform()"]
+        STORE["collector.store_posts()"]
+        SSE_PROG["Publish SSE: job_progress"]
+        ANALYZE["analyzer.analyze_range()<br/>(asyncio.to_thread)"]
+        SSE_DONE["Publish SSE:<br/>job_completed / job_failed"]
+    end
+
+    subgraph Update["4. RESULT"]
+        UPDATE_EXEC["Update JobExecutionDB<br/>status, posts, score, clusters"]
+        UI_REFRESH["Frontend auto-refreshes<br/>via SSE event callback"]
+    end
+
+    UI --> API_CREATE --> DB_INSERT --> SCHED_REG
+    CRON --> LOAD
+    MANUAL --> LOAD
+    LOAD --> EXEC_REC --> SSE_START
+    SSE_START --> COLLECT --> STORE --> SSE_PROG
+    SSE_PROG --> ANALYZE --> SSE_DONE
+    SSE_DONE --> UPDATE_EXEC --> UI_REFRESH
+```
+
+### Key Files - Scheduling
+
+| Component | File |
+|-----------|------|
+| Job Scheduler | `backend/purisa/services/scheduler.py` |
+| Job Executor + SSE Bus | `backend/purisa/services/job_executor.py` |
+| Job DB Models | `backend/purisa/database/job_models.py` |
+| Job API Endpoints | `backend/purisa/api/routes.py` |
+| Scheduler Activation | `backend/purisa/main.py` (lifespan) |
+| Frontend SchedulePanel | `frontend/src/components/SchedulePanel.tsx` |
+| SSE Hook | `frontend/src/hooks/useJobEvents.ts` |
+| Jobs Hook | `frontend/src/hooks/useScheduledJobs.ts` |
+
+### SSE Event Types
+
+| Event | Payload | When |
+|-------|---------|------|
+| `job_started` | job_id, execution_id, job_name, platform | Execution begins |
+| `job_progress` | job_id, phase (collection/analysis), counts | After each query or analysis |
+| `job_completed` | job_id, status, posts, score, clusters, duration | Success |
+| `job_failed` | job_id, status, error_message, duration | Failure |
+
+---
+
 ## Database Schema
 
 ```
@@ -370,6 +437,26 @@ COORDINATION TABLES (coordination_models.py)
 | insufficient_data         |
 | sync/url/text rates       |
 +---------------------------+
+
+SCHEDULING TABLES (job_models.py)
+==================================
+
++---------------------------+     +---------------------------+
+| ScheduledJobDB            |----<| JobExecutionDB            |
+|                           |     |                           |
+| id (PK)                   |     | id (PK)                   |
+| name                      |     | job_id (no FK)             |
+| platform                  |     | status                    |
+| queries (JSON)            |     | started_at / completed_at |
+| cron_expression           |     | duration_seconds          |
+| collect_limit             |     | posts_collected           |
+| analysis_hours            |     | accounts_discovered       |
+| harvest_comments          |     | comments_collected        |
+| enabled                   |     | coordination_score        |
+| job_metadata (JSON)       |     | clusters_detected         |
+| created_at / updated_at   |     | error_message             |
++---------------------------+     | execution_metadata (JSON) |
+                                  +---------------------------+
 ```
 
 ### Table Descriptions
@@ -388,8 +475,10 @@ COORDINATION TABLES (coordination_models.py)
 | **CoordinationMetricDB** | Hourly coordination scores and signal rates |
 | **EventDB** | User-contributed or auto-detected events for correlation |
 | **EventCorrelationDB** | Links between coordination spikes and events |
+| **ScheduledJobDB** | Cron-based scheduled collection/analysis jobs |
+| **JobExecutionDB** | Execution history for scheduled jobs |
 
-**Registration:** `connection.py` imports `coordination_models` to ensure all tables are created by `Base.metadata.create_all()`.
+**Registration:** `connection.py` imports `coordination_models` and `job_models` to ensure all tables are created by `Base.metadata.create_all()`.
 
 ---
 
@@ -414,6 +503,19 @@ GET  /api/coordination/timeline?platform=bluesky&hours=168
 GET  /api/coordination/clusters?platform=bluesky&hours=24&min_size=3
 POST /api/coordination/analyze?platform=bluesky&hours=24
 GET  /api/coordination/stats
+```
+
+### Scheduled Jobs (2.1)
+
+```
+GET  /api/jobs                          # List all jobs
+POST /api/jobs                          # Create job
+GET  /api/jobs/events/stream            # SSE event stream
+GET  /api/jobs/{id}                     # Job detail
+PUT  /api/jobs/{id}                     # Update job
+DELETE /api/jobs/{id}                   # Delete job
+POST /api/jobs/{id}/run                 # Manual trigger
+GET  /api/jobs/{id}/history             # Execution history
 ```
 
 ### Legacy Analysis

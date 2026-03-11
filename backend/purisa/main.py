@@ -6,7 +6,8 @@ import logging
 from purisa.config.settings import get_settings
 from purisa.database.connection import init_database
 from purisa.api.routes import router
-from purisa.services.scheduler import BackgroundScheduler
+from purisa.services.scheduler import JobScheduler
+from purisa.api.routes import set_scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -42,12 +43,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize database: {e}")
         raise
 
-    # Start background scheduler (optional - can be disabled for testing)
-    # Uncomment to enable automatic background collection and analysis
-    # global scheduler
-    # scheduler = BackgroundScheduler()
-    # scheduler.start()
-    # logger.info("Background scheduler started")
+    # Start job scheduler (loads cron jobs from database)
+    global scheduler
+    scheduler = JobScheduler()
+    scheduler.start()
+    set_scheduler(scheduler)
+    logger.info("Job scheduler started")
 
     yield
 
@@ -57,14 +58,14 @@ async def lifespan(app: FastAPI):
     # Shutdown scheduler if running
     if scheduler:
         scheduler.shutdown()
-        logger.info("Background scheduler stopped")
+        logger.info("Job scheduler stopped")
 
 
 # Create FastAPI app
 app = FastAPI(
     title="Purisa Bot Detection API",
     description="Multi-platform social media bot detection system",
-    version="0.1.0",
+    version="2.1.0",
     lifespan=lifespan
 )
 
@@ -87,7 +88,7 @@ async def root():
     """Root endpoint with API information."""
     return {
         "service": "Purisa Bot Detection API",
-        "version": "0.1.0",
+        "version": "2.1.0",
         "status": "running",
         "docs": "/docs",
         "api_prefix": "/api"

@@ -62,7 +62,6 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
     try {
       // Collect for each query and aggregate results
       let totalPosts = 0
-      let totalAccounts = new Set<string>()
       let totalComments = 0
 
       for (const query of queries) {

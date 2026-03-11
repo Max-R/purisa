@@ -6,6 +6,12 @@ import type { AccountWithScore } from '../types/account'
 import type { Post } from '../types/post'
 import type { Stats, CommentStats } from '../types/detection'
 import type { ScheduledJob, JobExecution, CreateJobParams, UpdateJobParams } from '../types/schedule'
+import type {
+  TimelineResponse, TimelinePoint,
+  ClustersResponse, Cluster, ClusterMember,
+  CoordinationStats, PeriodStats,
+  SpikesResponse, Spike,
+} from '../types/coordination'
 
 class ApiClient {
   private client: AxiosInstance
@@ -348,17 +354,17 @@ class ApiClient {
    * Create a new scheduled job
    */
   async createJob(params: CreateJobParams): Promise<ScheduledJob> {
-    const queryParams: any = {
+    const body: any = {
       name: params.name,
       platform: params.platform,
-      queries: params.queries.join(','),
-      cron_expression: params.cronExpression,
+      queries: params.queries,
+      cronExpression: params.cronExpression,
     }
-    if (params.collectLimit !== undefined) queryParams.collect_limit = params.collectLimit
-    if (params.analysisHours !== undefined) queryParams.analysis_hours = params.analysisHours
-    if (params.harvestComments !== undefined) queryParams.harvest_comments = params.harvestComments
+    if (params.collectLimit !== undefined) body.collectLimit = params.collectLimit
+    if (params.analysisHours !== undefined) body.analysisHours = params.analysisHours
+    if (params.harvestComments !== undefined) body.harvestComments = params.harvestComments
 
-    const response = await this.client.post('/jobs', null, { params: queryParams })
+    const response = await this.client.post('/jobs', body)
     return this.transformJob(response.data)
   }
 
@@ -366,16 +372,16 @@ class ApiClient {
    * Update a scheduled job
    */
   async updateJob(jobId: number, params: UpdateJobParams): Promise<ScheduledJob> {
-    const queryParams: any = {}
-    if (params.name !== undefined) queryParams.name = params.name
-    if (params.queries !== undefined) queryParams.queries = params.queries.join(',')
-    if (params.cronExpression !== undefined) queryParams.cron_expression = params.cronExpression
-    if (params.collectLimit !== undefined) queryParams.collect_limit = params.collectLimit
-    if (params.analysisHours !== undefined) queryParams.analysis_hours = params.analysisHours
-    if (params.harvestComments !== undefined) queryParams.harvest_comments = params.harvestComments
-    if (params.enabled !== undefined) queryParams.enabled = params.enabled
+    const body: any = {}
+    if (params.name !== undefined) body.name = params.name
+    if (params.queries !== undefined) body.queries = params.queries
+    if (params.cronExpression !== undefined) body.cronExpression = params.cronExpression
+    if (params.collectLimit !== undefined) body.collectLimit = params.collectLimit
+    if (params.analysisHours !== undefined) body.analysisHours = params.analysisHours
+    if (params.harvestComments !== undefined) body.harvestComments = params.harvestComments
+    if (params.enabled !== undefined) body.enabled = params.enabled
 
-    const response = await this.client.put(`/jobs/${jobId}`, null, { params: queryParams })
+    const response = await this.client.put(`/jobs/${jobId}`, body)
     return this.transformJob(response.data)
   }
 
@@ -404,6 +410,119 @@ class ApiClient {
     return {
       executions: response.data.executions.map((e: any) => this.transformExecution(e)),
       total: response.data.total,
+    }
+  }
+
+  // ─── Coordination Detection ────────────────────────────────
+
+  /**
+   * Get coordination score timeline
+   */
+  async getCoordinationTimeline(platform: string, hours: number = 168): Promise<TimelineResponse> {
+    const response = await this.client.get('/coordination/timeline', {
+      params: { platform, hours }
+    })
+    const d = response.data
+    return {
+      platform: d.platform,
+      hours: d.hours,
+      timeline: d.timeline.map((t: any): TimelinePoint => ({
+        time: t.time,
+        score: t.score,
+        posts: t.posts,
+        coordinated: t.coordinated,
+        clusters: t.clusters,
+        syncRate: t.sync_rate,
+      })),
+      summary: {
+        dataPoints: d.summary.data_points,
+        averageScore: d.summary.average_score,
+        peakScore: d.summary.peak_score,
+        totalPostsAnalyzed: d.summary.total_posts_analyzed,
+        totalCoordinated: d.summary.total_coordinated,
+      },
+    }
+  }
+
+  /**
+   * Get detected coordination clusters
+   */
+  async getCoordinationClusters(platform: string, hours: number = 24): Promise<ClustersResponse> {
+    const response = await this.client.get('/coordination/clusters', {
+      params: { platform, hours }
+    })
+    const d = response.data
+    return {
+      platform: d.platform,
+      hours: d.hours,
+      total: d.total,
+      clusters: d.clusters.map((c: any): Cluster => ({
+        clusterId: c.cluster_id,
+        detectedAt: c.detected_at,
+        timeWindow: {
+          start: c.time_window?.start ?? null,
+          end: c.time_window?.end ?? null,
+        },
+        memberCount: c.member_count,
+        density: c.density,
+        clusterType: c.cluster_type,
+        coordinationScore: c.coordination_score,
+        members: (c.members || []).map((m: any): ClusterMember => ({
+          accountId: m.account_id,
+          centrality: m.centrality,
+        })),
+      })),
+    }
+  }
+
+  /**
+   * Get coordination stats summary
+   */
+  async getCoordinationStats(platform?: string): Promise<CoordinationStats> {
+    const params: any = {}
+    if (platform) params.platform = platform
+
+    const response = await this.client.get('/coordination/stats', { params })
+    const d = response.data
+
+    const transformPeriod = (p: any): PeriodStats => ({
+      avgScore: p.avg_score,
+      peakScore: p.peak_score,
+      totalPosts: p.total_posts,
+      totalCoordinated: p.total_coordinated,
+      hoursAnalyzed: p.hours_analyzed,
+    })
+
+    return {
+      platform: d.platform,
+      totalClustersDetected: d.total_clusters_detected,
+      last24h: transformPeriod(d.last_24h),
+      last7d: transformPeriod(d.last_7d),
+    }
+  }
+
+  /**
+   * Get coordination spikes
+   */
+  async getCoordinationSpikes(platform: string, hours: number = 168): Promise<SpikesResponse> {
+    const response = await this.client.get('/coordination/spikes', {
+      params: { platform, hours }
+    })
+    const d = response.data
+    return {
+      platform: d.platform,
+      hours: d.hours,
+      thresholdStd: d.threshold_std,
+      total: d.total,
+      spikes: d.spikes.map((s: any): Spike => ({
+        timeBucket: s.time_bucket,
+        coordinationScore: s.coordination_score,
+        zScore: s.z_score,
+        totalPosts: s.total_posts,
+        clusterCount: s.cluster_count,
+        baselineMedian: s.baseline_median,
+        baselineMadStd: s.baseline_mad_std,
+      })),
     }
   }
 }

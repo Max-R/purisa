@@ -69,9 +69,14 @@ purisa/
 │   │   ├── components/             # UI components (shadcn/ui)
 │   │   │   ├── SchedulePanel.tsx   # Scheduled jobs CRUD + SSE status
 │   │   │   ├── CronInput.tsx       # Cron expression builder
-│   │   │   └── JobHistory.tsx      # Execution history table
-│   │   ├── hooks/                  # useStats, useAccounts, useScheduledJobs, useJobEvents
-│   │   └── api/client.ts           # Axios API client
+│   │   │   ├── JobHistory.tsx      # Execution history table
+│   │   │   ├── CoordinationStatsCards.tsx  # Coordination stat cards
+│   │   │   ├── CoordinationTimeline.tsx   # Recharts interactive timeline
+│   │   │   ├── ClustersTable.tsx   # Detected clusters with expandable members
+│   │   │   └── SpikesAlert.tsx     # Coordination spike alerts
+│   │   ├── hooks/                  # useCoordination, useScheduledJobs, useJobEvents
+│   │   │   └── types/coordination.ts  # Coordination API types
+│   │   └── api/client.ts           # Axios API client (jobs + coordination)
 │   └── package.json
 └── purisa.db                       # SQLite database (gitignored)
 ```
@@ -122,6 +127,9 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 - **JobExecutionDB no FK**: `job_id` column intentionally has no ForeignKey — execution history survives job deletion
 - **APScheduler job IDs**: Use `purisa_job_{db_id}` naming convention, with `replace_existing=True`
 - **Job model registration**: `connection.py` imports `job_models` (like `coordination_models`) to ensure tables are created
+- **Job API uses JSON bodies**: POST/PUT `/api/jobs` accept Pydantic request bodies (not query params) — queries are sent as JSON arrays to avoid comma-splitting bugs
+- **Lazy executor init**: `JobExecutor` uses `@property` for collector/analyzer to avoid blocking the event loop at startup (BlueskyPlatform does synchronous HTTP login)
+- **Recharts**: Frontend uses `recharts` for interactive coordination timeline chart
 
 ## Testing
 
@@ -147,10 +155,10 @@ python3 cli.py stats
 | POST | `/api/coordination/analyze?platform=X&hours=6` | Trigger analysis |
 | POST | `/api/collection/trigger?platform=X&query=Y` | Trigger collection |
 | GET | `/api/jobs` | List scheduled jobs |
-| POST | `/api/jobs` | Create scheduled job |
+| POST | `/api/jobs` | Create scheduled job (JSON body) |
 | GET | `/api/jobs/events/stream` | SSE stream (live events) |
 | GET | `/api/jobs/{id}` | Job detail |
-| PUT | `/api/jobs/{id}` | Update job |
+| PUT | `/api/jobs/{id}` | Update job (JSON body) |
 | DELETE | `/api/jobs/{id}` | Delete job |
 | POST | `/api/jobs/{id}/run` | Manual trigger |
 | GET | `/api/jobs/{id}/history` | Execution history |

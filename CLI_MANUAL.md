@@ -244,10 +244,10 @@ purisa spikes --platform <platform> --hours <number> --threshold <std_devs>
 
 **What it does:**
 
-1. Retrieves coordination metrics for the specified time period
-2. Calculates baseline mean and standard deviation
-3. Identifies hours where coordination score exceeds threshold
-4. Displays spikes sorted by magnitude (z-score)
+1. Retrieves coordination metrics for the specified time period (minimum 24 hours required)
+2. Calculates baseline using Median Absolute Deviation (MAD) — robust to outliers
+3. Identifies hours where coordination score exceeds threshold above median
+4. Displays spikes sorted by magnitude (deviation score)
 
 **Examples:**
 
@@ -280,7 +280,7 @@ Threshold: 2.0 standard deviations
 | 2026-02-02T02:00 |     100 | 2.06σ       |          2 |      15 |
 +------------------+---------+-------------+------------+---------+
 
-Baseline: mean=23.0, std=37.3
+Baseline: median=23.0, mad_std=37.3
 ```
 
 ---

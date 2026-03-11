@@ -67,7 +67,7 @@ Multi-platform social media coordination detection system. Analyzes Bluesky (pri
   - [x] Louvain community detection for clusters
   - [x] Hourly coordination scoring (0-100)
   - [x] Historical metrics storage
-  - [x] Spike detection (z-score based)
+  - [x] Spike detection (MAD-based, outlier-resistant)
 - [x] TextSimilarityCalculator service (`similarity.py`)
   - [x] TF-IDF vectorization with scikit-learn
   - [x] Cosine similarity calculation
@@ -178,10 +178,22 @@ Multi-platform social media coordination detection system. Analyzes Bluesky (pri
 - [x] stop.sh - Graceful shutdown script
 - [x] install.sh - CLI installation script
 
+#### Detection Accuracy Fixes (Phase 1)
+- [x] Clamp sync/url/text rates to [0.0, 1.0] — prevents score inflation
+- [x] Fix coordinated_posts overcounting — now only counts posts with graph edges in clusters
+- [x] Write edges to AccountEdgeDB — table was defined but never populated
+- [x] Replace z-score spike detection with MAD (Median Absolute Deviation) — robust to outliers, minimum 24 samples
+- [x] TF-IDF minimum corpus guard — requires 5+ posts for meaningful IDF weights
+- [x] Make Louvain community detection deterministic (seed=42)
+- [x] URL rarity weighting — viral URLs score lower, rare URLs score higher
+- [x] Deduplicate synchronized posting pairs — one edge per account pair
+- [x] Add `insufficient_data` flag to CoordinationMetricDB — distinguishes "no coordination" from "not enough data"
+
 ### In Progress 🚧
 
 - [ ] Frontend dashboard redesign for coordination timeline view
 - [ ] Coordination visualization components
+- [ ] Scheduling system for recurring collection/analysis jobs
 
 ### Blocked ⛔
 
@@ -426,5 +438,5 @@ _From testing on 2026-02-01_
 
 ---
 
-Last Updated: 2026-02-01
-Version: 2.0.0 (Coordination Detection)
+Last Updated: 2026-03-11
+Version: 2.0.1 (Detection Accuracy Fixes)

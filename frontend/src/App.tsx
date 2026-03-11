@@ -7,6 +7,7 @@ import AccountsTable from './components/AccountsTable'
 import PlatformFilter from './components/PlatformFilter'
 import ThemeToggle from './components/ThemeToggle'
 import CollectionPanel from './components/CollectionPanel'
+import SchedulePanel from './components/SchedulePanel'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -148,6 +149,12 @@ export default function App() {
           <CollectionPanel
             platforms={platforms.length > 0 ? platforms : ['bluesky', 'hackernews']}
             onComplete={handleRefresh}
+          />
+
+          {/* Scheduled Jobs */}
+          <SchedulePanel
+            platforms={platforms.length > 0 ? platforms : ['bluesky', 'hackernews']}
+            onJobComplete={handleRefresh}
           />
 
           {/* Stats Cards */}

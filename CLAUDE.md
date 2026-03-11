@@ -1,6 +1,6 @@
 # Purisa — Project Context
 
-Multi-platform coordination detection system (v2.0). Detects coordinated inauthentic behavior on Bluesky and Hacker News using network analysis.
+Multi-platform coordination detection system (v2.1). Detects coordinated inauthentic behavior on Bluesky and Hacker News using network analysis. Includes cron-based job scheduling with live SSE updates.
 
 ## Quick Start
 
@@ -49,11 +49,14 @@ purisa/
 │       ├── database/
 │       │   ├── connection.py       # DB init, singleton pattern
 │       │   ├── models.py           # AccountDB, PostDB, ScoreDB
-│       │   └── coordination_models.py  # ClusterDB, MetricDB, EdgeDB
+│       │   ├── coordination_models.py  # ClusterDB, MetricDB, EdgeDB
+│       │   └── job_models.py       # ScheduledJobDB, JobExecutionDB
 │       ├── services/
 │       │   ├── collector.py        # Data collection from platforms
 │       │   ├── coordination.py     # CoordinationAnalyzer (NetworkX)
 │       │   ├── similarity.py       # TF-IDF text similarity
+│       │   ├── scheduler.py        # JobScheduler (cron-based, APScheduler)
+│       │   ├── job_executor.py     # SSEEventBus + JobExecutor pipeline
 │       │   └── analyzer.py         # Legacy bot scorer (13 signals)
 │       └── platforms/
 │           ├── base.py             # Abstract adapter
@@ -64,7 +67,10 @@ purisa/
 │   │   ├── index.tsx               # React entry
 │   │   ├── App.tsx                 # Main dashboard
 │   │   ├── components/             # UI components (shadcn/ui)
-│   │   ├── hooks/                  # useStats, useAccounts
+│   │   │   ├── SchedulePanel.tsx   # Scheduled jobs CRUD + SSE status
+│   │   │   ├── CronInput.tsx       # Cron expression builder
+│   │   │   └── JobHistory.tsx      # Execution history table
+│   │   ├── hooks/                  # useStats, useAccounts, useScheduledJobs, useJobEvents
 │   │   └── api/client.ts           # Axios API client
 │   └── package.json
 └── purisa.db                       # SQLite database (gitignored)
@@ -86,7 +92,7 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 
 ## Architecture
 
-- **Backend**: FastAPI + SQLAlchemy + NetworkX + scikit-learn + pandas
+- **Backend**: FastAPI + SQLAlchemy + NetworkX + scikit-learn + pandas + APScheduler
 - **Frontend**: React 19 + Bun (native dev server, no Vite) + shadcn/ui + TailwindCSS
 - **Database**: SQLite (`purisa.db` at project root), PostgreSQL-ready
 - **CLI**: `cli.py` inserts `backend/` into `sys.path` and loads `backend/.env` via python-dotenv
@@ -111,6 +117,11 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 - **AccountEdgeDB**: Populated by `_store_results()` — edges are written per analysis run (old edges deleted first for idempotency)
 - **Rate clamping**: `sync_rate`, `url_rate`, `text_rate` are clamped to [0.0, 1.0] in `_calculate_metrics()`
 - **Tailwind**: Must be compiled separately — `start.sh` runs `bunx tailwindcss` in watch mode alongside Bun dev server
+- **SSE route ordering**: `/api/jobs/events/stream` MUST be defined before `/api/jobs/{job_id}` in routes.py — otherwise FastAPI captures "events" as a job_id parameter
+- **Scheduler accessor pattern**: `routes.py` uses `set_scheduler()`/`get_scheduler()` module-level functions to avoid circular imports — `main.py` calls `set_scheduler()` after creating the scheduler
+- **JobExecutionDB no FK**: `job_id` column intentionally has no ForeignKey — execution history survives job deletion
+- **APScheduler job IDs**: Use `purisa_job_{db_id}` naming convention, with `replace_existing=True`
+- **Job model registration**: `connection.py` imports `job_models` (like `coordination_models`) to ensure tables are created
 
 ## Testing
 
@@ -135,3 +146,11 @@ python3 cli.py stats
 | GET | `/api/coordination/clusters?platform=X` | Detected clusters |
 | POST | `/api/coordination/analyze?platform=X&hours=6` | Trigger analysis |
 | POST | `/api/collection/trigger?platform=X&query=Y` | Trigger collection |
+| GET | `/api/jobs` | List scheduled jobs |
+| POST | `/api/jobs` | Create scheduled job |
+| GET | `/api/jobs/events/stream` | SSE stream (live events) |
+| GET | `/api/jobs/{id}` | Job detail |
+| PUT | `/api/jobs/{id}` | Update job |
+| DELETE | `/api/jobs/{id}` | Delete job |
+| POST | `/api/jobs/{id}/run` | Manual trigger |
+| GET | `/api/jobs/{id}/history` | Execution history |

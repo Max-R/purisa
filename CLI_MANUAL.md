@@ -1,6 +1,8 @@
 # Purisa CLI Manual
 
-Complete command-line interface reference for the Purisa 2.0 coordination detection system.
+Complete command-line interface reference for the Purisa 2.1 coordination detection system.
+
+> **Note:** Recurring scheduled jobs are managed through the web dashboard (http://localhost:3000) rather than the CLI. The SchedulePanel supports cron-based scheduling, live SSE updates, and execution history.
 
 ## Installation
 

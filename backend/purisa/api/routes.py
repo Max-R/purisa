@@ -1,18 +1,23 @@
 """FastAPI routes and endpoints."""
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import func
+import asyncio
+import json
 import logging
 from purisa.database.connection import get_database
 from purisa.database.models import AccountDB, PostDB, FlagDB, ScoreDB, InflammatoryFlagDB, CommentStatsDB
 from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB, ClusterMemberDB
+from purisa.database.job_models import ScheduledJobDB, JobExecutionDB
 from purisa.models.account import Account
 from purisa.models.post import Post
 from purisa.models.detection import Flag, Score
 from purisa.services.collector import UniversalCollector
 from purisa.services.analyzer import BotDetector
 from purisa.services.coordination import CoordinationAnalyzer
+from purisa.services.job_executor import event_bus, JobExecutor
 from purisa.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -1138,3 +1143,407 @@ async def get_coordination_stats(platform: Optional[str] = Query(None)):
     except Exception as e:
         logger.error(f"Error getting coordination stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Scheduler accessor (set from main.py to avoid circular imports)
+# ============================================================================
+
+_scheduler = None
+
+
+def set_scheduler(scheduler):
+    """Set the global scheduler instance (called from main.py lifespan)."""
+    global _scheduler
+    _scheduler = scheduler
+
+
+def get_scheduler():
+    """Get the global scheduler instance."""
+    return _scheduler
+
+
+# ============================================================================
+# Scheduled Jobs endpoints
+# ============================================================================
+
+
+@router.get("/jobs/events/stream")
+async def job_events_stream():
+    """
+    Server-Sent Events stream for real-time job execution updates.
+
+    Events: job_started, job_progress, job_completed, job_failed
+    """
+    async def generate():
+        queue = event_bus.subscribe()
+        try:
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=30)
+                    yield f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive to prevent proxy/browser disconnects
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            event_bus.unsubscribe(queue)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@router.get("/jobs")
+async def list_jobs(
+    platform: Optional[str] = Query(None, description="Filter by platform"),
+):
+    """List all scheduled jobs."""
+    try:
+        db = get_database()
+        scheduler = get_scheduler()
+
+        with db.get_session() as session:
+            query = session.query(ScheduledJobDB)
+            if platform:
+                query = query.filter(ScheduledJobDB.platform == platform)
+            jobs = query.order_by(ScheduledJobDB.created_at.desc()).all()
+
+            result = []
+            for job in jobs:
+                # Get last execution
+                last_exec = session.query(JobExecutionDB).filter(
+                    JobExecutionDB.job_id == job.id
+                ).order_by(JobExecutionDB.created_at.desc()).first()
+
+                next_run = None
+                if scheduler:
+                    next_run_dt = scheduler.get_next_run(job.id)
+                    if next_run_dt:
+                        next_run = next_run_dt.isoformat()
+
+                result.append({
+                    'id': job.id,
+                    'name': job.name,
+                    'platform': job.platform,
+                    'queries': job.queries,
+                    'cron_expression': job.cron_expression,
+                    'collect_limit': job.collect_limit,
+                    'analysis_hours': job.analysis_hours,
+                    'harvest_comments': job.harvest_comments,
+                    'enabled': job.enabled,
+                    'created_at': job.created_at.isoformat() if job.created_at else None,
+                    'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                    'next_run_at': next_run,
+                    'last_execution': _serialize_execution(last_exec) if last_exec else None,
+                })
+
+            return {"jobs": result}
+
+    except Exception as e:
+        logger.error(f"Error listing jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs")
+async def create_job(
+    name: str = Query(..., description="Job name"),
+    platform: str = Query(..., description="Target platform"),
+    queries: str = Query(..., description="Comma-separated search queries"),
+    cron_expression: str = Query(..., description="Cron schedule (5-field)"),
+    collect_limit: int = Query(100, ge=1, le=10000, description="Posts per query"),
+    analysis_hours: int = Query(6, ge=1, le=168, description="Hours of data to analyze"),
+    harvest_comments: bool = Query(True, description="Harvest comments from top posts"),
+):
+    """Create a new scheduled job."""
+    try:
+        # Validate cron expression
+        from apscheduler.triggers.cron import CronTrigger
+        try:
+            CronTrigger.from_crontab(cron_expression)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid cron expression: {e}")
+
+        # Validate platform
+        if platform not in ('bluesky', 'hackernews'):
+            raise HTTPException(status_code=400, detail=f"Invalid platform: {platform}")
+
+        query_list = [q.strip() for q in queries.split(',') if q.strip()]
+        if not query_list:
+            raise HTTPException(status_code=400, detail="At least one query is required")
+
+        db = get_database()
+        with db.get_session() as session:
+            job = ScheduledJobDB(
+                name=name,
+                platform=platform,
+                queries=query_list,
+                cron_expression=cron_expression,
+                collect_limit=collect_limit,
+                analysis_hours=analysis_hours,
+                harvest_comments=1 if harvest_comments else 0,
+                enabled=1,
+            )
+            session.add(job)
+            session.flush()
+            job_id = job.id
+
+            # Register with scheduler
+            scheduler = get_scheduler()
+            if scheduler:
+                scheduler.add_job(job_id, cron_expression)
+
+            return {
+                'id': job_id,
+                'name': name,
+                'platform': platform,
+                'queries': query_list,
+                'cron_expression': cron_expression,
+                'collect_limit': collect_limit,
+                'analysis_hours': analysis_hours,
+                'harvest_comments': 1 if harvest_comments else 0,
+                'enabled': 1,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat(),
+                'next_run_at': scheduler.get_next_run(job_id).isoformat() if scheduler and scheduler.get_next_run(job_id) else None,
+                'last_execution': None,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: int):
+    """Get a single job with its recent execution history."""
+    try:
+        db = get_database()
+        scheduler = get_scheduler()
+
+        with db.get_session() as session:
+            job = session.query(ScheduledJobDB).filter_by(id=job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            last_exec = session.query(JobExecutionDB).filter(
+                JobExecutionDB.job_id == job_id
+            ).order_by(JobExecutionDB.created_at.desc()).first()
+
+            next_run = None
+            if scheduler:
+                next_run_dt = scheduler.get_next_run(job_id)
+                if next_run_dt:
+                    next_run = next_run_dt.isoformat()
+
+            return {
+                'id': job.id,
+                'name': job.name,
+                'platform': job.platform,
+                'queries': job.queries,
+                'cron_expression': job.cron_expression,
+                'collect_limit': job.collect_limit,
+                'analysis_hours': job.analysis_hours,
+                'harvest_comments': job.harvest_comments,
+                'enabled': job.enabled,
+                'created_at': job.created_at.isoformat() if job.created_at else None,
+                'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                'next_run_at': next_run,
+                'last_execution': _serialize_execution(last_exec) if last_exec else None,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/jobs/{job_id}")
+async def update_job(
+    job_id: int,
+    name: Optional[str] = Query(None),
+    queries: Optional[str] = Query(None, description="Comma-separated queries"),
+    cron_expression: Optional[str] = Query(None),
+    collect_limit: Optional[int] = Query(None, ge=1, le=10000),
+    analysis_hours: Optional[int] = Query(None, ge=1, le=168),
+    harvest_comments: Optional[bool] = Query(None),
+    enabled: Optional[bool] = Query(None),
+):
+    """Update an existing scheduled job (partial update)."""
+    try:
+        db = get_database()
+        scheduler = get_scheduler()
+
+        with db.get_session() as session:
+            job = session.query(ScheduledJobDB).filter_by(id=job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            if name is not None:
+                job.name = name
+            if queries is not None:
+                query_list = [q.strip() for q in queries.split(',') if q.strip()]
+                if not query_list:
+                    raise HTTPException(status_code=400, detail="At least one query required")
+                job.queries = query_list
+            if cron_expression is not None:
+                from apscheduler.triggers.cron import CronTrigger
+                try:
+                    CronTrigger.from_crontab(cron_expression)
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Invalid cron expression: {e}")
+                job.cron_expression = cron_expression
+            if collect_limit is not None:
+                job.collect_limit = collect_limit
+            if analysis_hours is not None:
+                job.analysis_hours = analysis_hours
+            if harvest_comments is not None:
+                job.harvest_comments = 1 if harvest_comments else 0
+            if enabled is not None:
+                job.enabled = 1 if enabled else 0
+
+            job.updated_at = datetime.now()
+
+            # Update scheduler if cron or enabled changed
+            if scheduler and (cron_expression is not None or enabled is not None):
+                scheduler.update_job(
+                    job_id,
+                    job.cron_expression,
+                    bool(job.enabled)
+                )
+
+            return {
+                'id': job.id,
+                'name': job.name,
+                'platform': job.platform,
+                'queries': job.queries,
+                'cron_expression': job.cron_expression,
+                'collect_limit': job.collect_limit,
+                'analysis_hours': job.analysis_hours,
+                'harvest_comments': job.harvest_comments,
+                'enabled': job.enabled,
+                'created_at': job.created_at.isoformat() if job.created_at else None,
+                'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                'next_run_at': scheduler.get_next_run(job_id).isoformat() if scheduler and scheduler.get_next_run(job_id) else None,
+                'last_execution': None,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/jobs/{job_id}")
+async def delete_job(job_id: int):
+    """Delete a scheduled job (execution history is preserved)."""
+    try:
+        db = get_database()
+        scheduler = get_scheduler()
+
+        with db.get_session() as session:
+            job = session.query(ScheduledJobDB).filter_by(id=job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            # Remove from scheduler first
+            if scheduler:
+                scheduler.remove_job(job_id)
+
+            session.delete(job)
+
+        return {"status": "deleted", "job_id": job_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/{job_id}/run")
+async def run_job_now(job_id: int):
+    """Manually trigger a job execution immediately."""
+    try:
+        db = get_database()
+
+        with db.get_session() as session:
+            job = session.query(ScheduledJobDB).filter_by(id=job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+        # Run in background (non-blocking)
+        executor = JobExecutor()
+        asyncio.create_task(executor.execute_job(job_id))
+
+        return {
+            "status": "started",
+            "job_id": job_id,
+            "message": "Job execution started. Listen to /api/jobs/events/stream for updates.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}/history")
+async def get_job_history(
+    job_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Get execution history for a job."""
+    try:
+        db = get_database()
+
+        with db.get_session() as session:
+            total = session.query(func.count(JobExecutionDB.id)).filter(
+                JobExecutionDB.job_id == job_id
+            ).scalar()
+
+            executions = session.query(JobExecutionDB).filter(
+                JobExecutionDB.job_id == job_id
+            ).order_by(
+                JobExecutionDB.created_at.desc()
+            ).offset(offset).limit(limit).all()
+
+            return {
+                "executions": [_serialize_execution(e) for e in executions],
+                "total": total,
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting job history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _serialize_execution(execution: JobExecutionDB) -> dict:
+    """Serialize a JobExecutionDB to a dict."""
+    return {
+        'id': execution.id,
+        'job_id': execution.job_id,
+        'status': execution.status,
+        'started_at': execution.started_at.isoformat() if execution.started_at else None,
+        'completed_at': execution.completed_at.isoformat() if execution.completed_at else None,
+        'duration_seconds': execution.duration_seconds,
+        'posts_collected': execution.posts_collected,
+        'accounts_discovered': execution.accounts_discovered,
+        'comments_collected': execution.comments_collected,
+        'coordination_score': execution.coordination_score,
+        'clusters_detected': execution.clusters_detected,
+        'error_message': execution.error_message,
+    }

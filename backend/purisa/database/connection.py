@@ -1,5 +1,5 @@
 """Database connection and session management."""
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text as sa_text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from contextlib import contextmanager
@@ -45,7 +45,23 @@ class Database:
     def create_tables(self):
         """Create all database tables."""
         Base.metadata.create_all(bind=self.engine)
+        self._run_migrations()
         logger.info("Database tables created")
+
+    def _run_migrations(self):
+        """Run lightweight schema migrations for existing databases."""
+        migrations = [
+            ("posts", "source_query", "ALTER TABLE posts ADD COLUMN source_query TEXT"),
+        ]
+        with self.engine.connect() as conn:
+            for table, column, sql in migrations:
+                try:
+                    conn.execute(sa_text(sql))
+                    conn.commit()
+                    logger.info(f"Migration: added {table}.{column}")
+                except Exception:
+                    # Column already exists — expected for fresh or already-migrated DBs
+                    conn.rollback()
 
     def drop_tables(self):
         """Drop all database tables (use with caution!)."""

@@ -154,12 +154,13 @@ class UniversalCollector:
 
         return posts
 
-    async def store_posts(self, posts: List[Post]):
+    async def store_posts(self, posts: List[Post], source_query: Optional[str] = None):
         """
         Store collected posts in database.
 
         Args:
             posts: List of posts to store
+            source_query: The search query that collected these posts (e.g. "#iran", "top")
         """
         db = get_database()
 
@@ -213,7 +214,8 @@ class UniversalCollector:
                     created_at=post.created_at,
                     engagement=post.engagement,
                     platform_metadata=post.metadata,  # Map Pydantic model metadata to database platform_metadata
-                    collected_at=datetime.now()
+                    collected_at=datetime.now(),
+                    source_query=source_query,
                 )
                 session.merge(post_db)
                 processed_posts.add(post.id)
@@ -261,7 +263,7 @@ class UniversalCollector:
                         f'#{hashtag}',
                         bluesky_config['collection']['posts_per_cycle']
                     )
-                    await self.store_posts(posts)
+                    await self.store_posts(posts, source_query=f'#{hashtag}')
                     all_collected_posts.extend(posts)
                 except Exception as e:
                     logger.error(f"Error collecting Bluesky hashtag {hashtag}: {e}")
@@ -279,7 +281,7 @@ class UniversalCollector:
                         story_type,
                         hn_config['collection']['posts_per_cycle']
                     )
-                    await self.store_posts(posts)
+                    await self.store_posts(posts, source_query=story_type)
                     all_collected_posts.extend(posts)
                 except Exception as e:
                     logger.error(f"Error collecting HN {story_type} stories: {e}")
@@ -473,7 +475,7 @@ class UniversalCollector:
             logger.error(f"Error harvesting comments for post {post.id}: {e}")
             return []
 
-    async def _store_comments(self, comments: List[Post], parent_id: str) -> List[dict]:
+    async def _store_comments(self, comments: List[Post], parent_id: str, source_query: Optional[str] = None) -> List[dict]:
         """
         Store comments in database.
 
@@ -528,7 +530,8 @@ class UniversalCollector:
                     platform_metadata=comment.metadata,
                     collected_at=datetime.now(),
                     parent_id=comment.metadata.get('parent_id', parent_id),
-                    post_type='comment'
+                    post_type='comment',
+                    source_query=source_query,
                 )
                 session.merge(comment_db)
 

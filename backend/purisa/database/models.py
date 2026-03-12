@@ -93,6 +93,7 @@ class PostDB(Base):
     engagement = Column(JSON, default=dict)                                     # Engagement metrics: likes, reposts, comments, score
     platform_metadata = Column(JSON, default=dict)                              # Platform-specific attributes (see class docstring)
     collected_at = Column(DateTime, default=datetime.now)                       # When post was collected by Purisa
+    source_query = Column(String, nullable=True)                                  # Search query that collected this post (e.g. "#iran", "top")
 
     # Comment-related columns
     parent_id = Column(String, ForeignKey('posts.id'), nullable=True)           # Parent post ID (NULL for top-level posts)
@@ -109,6 +110,7 @@ class PostDB(Base):
         Index('idx_posts_parent', 'parent_id'),
         Index('idx_posts_type', 'post_type'),
         Index('idx_posts_top_performer', 'is_top_performer'),
+        Index('idx_posts_source_query', 'source_query'),
     )
 
 

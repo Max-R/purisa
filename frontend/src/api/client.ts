@@ -11,6 +11,7 @@ import type {
   ClustersResponse, Cluster, ClusterMember,
   CoordinationStats, PeriodStats,
   SpikesResponse, Spike,
+  QueriesResponse, QueryInfo,
 } from '../types/coordination'
 
 class ApiClient {
@@ -418,10 +419,10 @@ class ApiClient {
   /**
    * Get coordination score timeline
    */
-  async getCoordinationTimeline(platform: string, hours: number = 168): Promise<TimelineResponse> {
-    const response = await this.client.get('/coordination/timeline', {
-      params: { platform, hours }
-    })
+  async getCoordinationTimeline(platform: string, hours: number = 168, query?: string): Promise<TimelineResponse> {
+    const params: any = { platform, hours }
+    if (query) params.query = query
+    const response = await this.client.get('/coordination/timeline', { params })
     const d = response.data
     return {
       platform: d.platform,
@@ -447,10 +448,10 @@ class ApiClient {
   /**
    * Get detected coordination clusters
    */
-  async getCoordinationClusters(platform: string, hours: number = 24): Promise<ClustersResponse> {
-    const response = await this.client.get('/coordination/clusters', {
-      params: { platform, hours }
-    })
+  async getCoordinationClusters(platform: string, hours: number = 24, query?: string): Promise<ClustersResponse> {
+    const params: any = { platform, hours }
+    if (query) params.query = query
+    const response = await this.client.get('/coordination/clusters', { params })
     const d = response.data
     return {
       platform: d.platform,
@@ -478,9 +479,10 @@ class ApiClient {
   /**
    * Get coordination stats summary
    */
-  async getCoordinationStats(platform?: string): Promise<CoordinationStats> {
+  async getCoordinationStats(platform?: string, query?: string): Promise<CoordinationStats> {
     const params: any = {}
     if (platform) params.platform = platform
+    if (query) params.query = query
 
     const response = await this.client.get('/coordination/stats', { params })
     const d = response.data
@@ -504,10 +506,10 @@ class ApiClient {
   /**
    * Get coordination spikes
    */
-  async getCoordinationSpikes(platform: string, hours: number = 168): Promise<SpikesResponse> {
-    const response = await this.client.get('/coordination/spikes', {
-      params: { platform, hours }
-    })
+  async getCoordinationSpikes(platform: string, hours: number = 168, query?: string): Promise<SpikesResponse> {
+    const params: any = { platform, hours }
+    if (query) params.query = query
+    const response = await this.client.get('/coordination/spikes', { params })
     const d = response.data
     return {
       platform: d.platform,
@@ -522,6 +524,27 @@ class ApiClient {
         clusterCount: s.cluster_count,
         baselineMedian: s.baseline_median,
         baselineMadStd: s.baseline_mad_std,
+      })),
+    }
+  }
+
+  /**
+   * Get distinct source queries with post counts for a platform
+   */
+  async getCoordinationQueries(platform: string, hours: number = 168): Promise<QueriesResponse> {
+    const response = await this.client.get('/coordination/queries', {
+      params: { platform, hours }
+    })
+    const d = response.data
+    return {
+      platform: d.platform,
+      hours: d.hours,
+      totalQueries: d.total_queries,
+      queries: d.queries.map((q: any): QueryInfo => ({
+        query: q.query,
+        postCount: q.post_count,
+        earliest: q.earliest,
+        latest: q.latest,
       })),
     }
   }

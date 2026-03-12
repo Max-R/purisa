@@ -21,7 +21,7 @@ interface UseCoordinationResult {
   refetch: () => Promise<void>
 }
 
-export function useCoordination(platform?: string): UseCoordinationResult {
+export function useCoordination(platform?: string, query?: string): UseCoordinationResult {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null)
   const [clusters, setClusters] = useState<ClustersResponse | null>(null)
   const [stats, setStats] = useState<CoordinationStats | null>(null)
@@ -36,11 +36,13 @@ export function useCoordination(platform?: string): UseCoordinationResult {
     try {
       // Fetch all coordination data in parallel
       // Stats doesn't require a platform, but others do
+      // Pass optional query filter to scope results
+      const q = query || undefined
       const results = await Promise.allSettled([
-        platform ? apiClient.getCoordinationTimeline(platform, 168) : Promise.resolve(null),
-        platform ? apiClient.getCoordinationClusters(platform, 24) : Promise.resolve(null),
-        apiClient.getCoordinationStats(platform || undefined),
-        platform ? apiClient.getCoordinationSpikes(platform, 168) : Promise.resolve(null),
+        platform ? apiClient.getCoordinationTimeline(platform, 168, q) : Promise.resolve(null),
+        platform ? apiClient.getCoordinationClusters(platform, 24, q) : Promise.resolve(null),
+        apiClient.getCoordinationStats(platform || undefined, q),
+        platform ? apiClient.getCoordinationSpikes(platform, 168, q) : Promise.resolve(null),
       ])
 
       const [timelineResult, clustersResult, statsResult, spikesResult] = results
@@ -55,7 +57,7 @@ export function useCoordination(platform?: string): UseCoordinationResult {
     } finally {
       setLoading(false)
     }
-  }, [platform])
+  }, [platform, query])
 
   useEffect(() => {
     fetchData()

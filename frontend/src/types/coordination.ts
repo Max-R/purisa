@@ -92,3 +92,19 @@ export interface SpikesResponse {
   spikes: Spike[]
   total: number
 }
+
+// ─── Queries ─────────────────────────────────────────────
+
+export interface QueryInfo {
+  query: string
+  postCount: number
+  earliest: string | null
+  latest: string | null
+}
+
+export interface QueriesResponse {
+  platform: string
+  hours: number
+  queries: QueryInfo[]
+  totalQueries: number
+}

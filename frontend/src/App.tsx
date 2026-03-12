@@ -1,10 +1,14 @@
 import { useState, useCallback, useEffect } from 'react'
 import { usePlatforms } from './hooks/usePlatforms'
 import { useCoordination } from './hooks/useCoordination'
+import { useScheduledJobs } from './hooks/useScheduledJobs'
+import { apiClient } from './api/client'
+import type { QueriesResponse } from './types/coordination'
 import PlatformFilter from './components/PlatformFilter'
 import ThemeToggle from './components/ThemeToggle'
 import CollectionPanel from './components/CollectionPanel'
 import SchedulePanel from './components/SchedulePanel'
+import DataContextBanner from './components/DataContextBanner'
 import SpikesAlert from './components/SpikesAlert'
 import CoordinationStatsCards from './components/CoordinationStatsCards'
 import CoordinationTimeline from './components/CoordinationTimeline'
@@ -15,9 +19,12 @@ import { Shield, Info, X } from "lucide-react"
 
 export default function App() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const [selectedQuery, setSelectedQuery] = useState<string | null>(null)
   const [showExplainer, setShowExplainer] = useState(true)
+  const [queriesData, setQueriesData] = useState<QueriesResponse | null>(null)
 
   const { platforms } = usePlatforms()
+  const { jobs, fetchJobs } = useScheduledJobs()
 
   // Auto-select first platform so coordination endpoints get called
   useEffect(() => {
@@ -26,6 +33,21 @@ export default function App() {
     }
   }, [platforms, selectedPlatform])
 
+  // Fetch jobs and queries when platform changes
+  useEffect(() => {
+    if (selectedPlatform) {
+      fetchJobs()
+      apiClient.getCoordinationQueries(selectedPlatform, 168)
+        .then(setQueriesData)
+        .catch((e) => console.error('Failed to load queries:', e))
+    }
+  }, [selectedPlatform, fetchJobs])
+
+  // Clear query filter when platform changes
+  useEffect(() => {
+    setSelectedQuery(null)
+  }, [selectedPlatform])
+
   const {
     timeline,
     clusters,
@@ -33,7 +55,7 @@ export default function App() {
     spikes,
     loading: coordinationLoading,
     refetch: refetchCoordination,
-  } = useCoordination(selectedPlatform || undefined)
+  } = useCoordination(selectedPlatform || undefined, selectedQuery || undefined)
 
   const handlePlatformChange = useCallback((platform: string | null) => {
     setSelectedPlatform(platform)
@@ -41,7 +63,13 @@ export default function App() {
 
   const handleRefresh = useCallback(async () => {
     await refetchCoordination()
-  }, [refetchCoordination])
+    // Also refresh queries data after collection/job completes
+    if (selectedPlatform) {
+      apiClient.getCoordinationQueries(selectedPlatform, 168)
+        .then(setQueriesData)
+        .catch((e) => console.error('Failed to refresh queries:', e))
+    }
+  }, [refetchCoordination, selectedPlatform])
 
   const handleTimelineHoursChange = useCallback(async () => {
     await refetchCoordination()
@@ -136,6 +164,17 @@ export default function App() {
 
           {/* Spikes Alert */}
           <SpikesAlert spikes={spikes} />
+
+          {/* Data Context Banner */}
+          {selectedPlatform && (
+            <DataContextBanner
+              platform={selectedPlatform}
+              queries={queriesData}
+              jobs={jobs}
+              selectedQuery={selectedQuery}
+              onQueryChange={setSelectedQuery}
+            />
+          )}
 
           {/* Coordination Stats */}
           <CoordinationStatsCards

@@ -9,11 +9,13 @@ import SpikesAlert from './components/SpikesAlert'
 import CoordinationStatsCards from './components/CoordinationStatsCards'
 import CoordinationTimeline from './components/CoordinationTimeline'
 import ClustersTable from './components/ClustersTable'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from "@/components/ui/button"
-import { RefreshCw, Shield } from "lucide-react"
+import { Shield, Info, X } from "lucide-react"
 
 export default function App() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const [showExplainer, setShowExplainer] = useState(true)
 
   const { platforms } = usePlatforms()
 
@@ -67,16 +69,6 @@ export default function App() {
                 selected={selectedPlatform}
                 onChange={handlePlatformChange}
               />
-              <Button
-                onClick={handleRefresh}
-                disabled={coordinationLoading}
-                variant="outline"
-              >
-                <RefreshCw className={`h-4 w-4 ${coordinationLoading ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline ml-2">
-                  {coordinationLoading ? 'Refreshing...' : 'Refresh'}
-                </span>
-              </Button>
               <ThemeToggle />
             </div>
           </div>
@@ -86,6 +78,50 @@ export default function App() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className="space-y-8">
+          {/* What is Coordination Detection? */}
+          {showExplainer && (
+            <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800/50">
+              <CardContent className="py-4 px-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <h3 className="font-semibold text-sm">What is Coordination Detection?</h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      This dashboard detects <strong className="text-foreground">coordinated inauthentic behavior</strong> — groups of accounts
+                      that act together in suspicious patterns, like posting the same content simultaneously,
+                      sharing the same links, or using identical hashtags within seconds of each other.
+                      A high coordination score does not prove malicious intent — it flags patterns worth investigating.
+                    </p>
+                    <div className="flex flex-wrap gap-4 text-xs text-muted-foreground pt-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
+                        Score 60+ = High coordination
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-yellow-500" />
+                        Score 30–59 = Moderate
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-gray-400" />
+                        Score 0–29 = Low / organic
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 shrink-0 text-muted-foreground"
+                    onClick={() => setShowExplainer(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Collection Panel */}
           <CollectionPanel
             platforms={platforms.length > 0 ? platforms : ['bluesky', 'hackernews']}
@@ -130,8 +166,9 @@ export default function App() {
               <Shield className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">Purisa Coordination Detection</span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Scores indicate coordination probability and should be verified manually
+            <p className="text-xs text-muted-foreground max-w-md text-center sm:text-right">
+              Coordination scores indicate statistical patterns and should be verified manually.
+              High scores do not necessarily indicate malicious intent.
             </p>
           </div>
         </div>

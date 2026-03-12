@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AlertTriangle, X, ChevronDown, ChevronUp } from 'lucide-react'
+import InfoTooltip from './InfoTooltip'
 import type { SpikesResponse } from '../types/coordination'
 
 interface SpikesAlertProps {
@@ -37,8 +38,16 @@ export default function SpikesAlert({ spikes }: SpikesAlertProps) {
               <span className="font-medium text-amber-900 dark:text-amber-100">
                 {spikeList.length} coordination {spikeList.length === 1 ? 'spike' : 'spikes'} detected
               </span>
-              <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300">
-                Peak z-score: {highestZScore.toFixed(1)}
+              <InfoTooltip
+                text="A spike occurs when an hourly coordination score is significantly above the historical baseline (using Median Absolute Deviation). This may indicate a sudden burst of coordinated activity."
+                side="bottom"
+              />
+              <Badge
+                variant="outline"
+                className="border-amber-500 text-amber-700 dark:text-amber-300"
+                title="Z-score measures how far above the baseline this spike is. Higher values = more unusual."
+              >
+                {highestZScore.toFixed(1)}x above baseline
               </Badge>
               <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300">
                 Max score: {highestScore.toFixed(1)}
@@ -79,7 +88,12 @@ export default function SpikesAlert({ spikes }: SpikesAlertProps) {
                     {time.toLocaleDateString()} {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <span>Score: {spike.coordinationScore.toFixed(1)}</span>
-                  <span className="text-muted-foreground">z={spike.zScore.toFixed(2)}</span>
+                  <span
+                    className="text-muted-foreground"
+                    title={`Z-score: ${spike.zScore.toFixed(2)} — measures standard deviations above the median coordination score`}
+                  >
+                    {spike.zScore.toFixed(1)}x above normal
+                  </span>
                   <span className="text-muted-foreground">{spike.totalPosts} posts</span>
                   <span className="text-muted-foreground">{spike.clusterCount} clusters</span>
                 </div>

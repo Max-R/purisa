@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Activity } from 'lucide-react'
+import InfoTooltip from './InfoTooltip'
 import type { TimelineResponse } from '../types/coordination'
 
 interface CoordinationTimelineProps {
@@ -44,6 +45,13 @@ function formatDate(isoTime: string): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+// Score interpretation helper
+function scoreLabel(score: number): { text: string; className: string } {
+  if (score >= 60) return { text: 'High coordination', className: 'text-red-600 dark:text-red-400' }
+  if (score >= 30) return { text: 'Moderate', className: 'text-yellow-600 dark:text-yellow-400' }
+  return { text: 'Low / organic', className: 'text-green-600 dark:text-green-400' }
+}
+
 // Custom tooltip component
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
   if (!active || !payload || payload.length === 0) return null
@@ -52,6 +60,8 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
   if (!data) return null
 
   const time = new Date(data.time)
+  const label = scoreLabel(data.score)
+  const coordRate = data.posts > 0 ? ((data.coordinated / data.posts) * 100).toFixed(1) : null
 
   return (
     <div className="rounded-lg border bg-background p-3 shadow-md">
@@ -63,6 +73,9 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
           <span className="text-muted-foreground">Score:</span>
           <span className="font-mono font-medium">{data.score.toFixed(1)}</span>
         </div>
+        <div className={`text-xs font-medium ${label.className}`}>
+          {label.text}
+        </div>
         <div className="flex justify-between gap-4">
           <span className="text-muted-foreground">Posts:</span>
           <span className="font-mono">{data.posts}</span>
@@ -71,6 +84,12 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
           <span className="text-muted-foreground">Coordinated:</span>
           <span className="font-mono">{data.coordinated}</span>
         </div>
+        {coordRate && (
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Coord. rate:</span>
+            <span className="font-mono">{coordRate}%</span>
+          </div>
+        )}
         <div className="flex justify-between gap-4">
           <span className="text-muted-foreground">Clusters:</span>
           <span className="font-mono">{data.clusters}</span>
@@ -107,6 +126,7 @@ export default function CoordinationTimeline({ timeline, loading, onHoursChange 
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-lg">Coordination Timeline</CardTitle>
+            <InfoTooltip text="Hourly coordination score over time. Each point represents one hour of analyzed posts. Higher scores indicate more coordinated behavior among accounts." />
             {timeline && (
               <Badge variant="secondary" className="ml-1">
                 {timeline.summary.dataPoints} data points
@@ -211,16 +231,16 @@ export default function CoordinationTimeline({ timeline, loading, onHoursChange 
 
             {/* Summary row */}
             <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t text-sm text-muted-foreground">
-              <span>
+              <span title="Average hourly coordination score for the selected period">
                 Avg: <span className="font-mono font-medium text-foreground">{timeline.summary.averageScore.toFixed(1)}</span>
               </span>
-              <span>
+              <span title="Highest coordination score in a single hour during this period">
                 Peak: <span className="font-mono font-medium text-foreground">{timeline.summary.peakScore.toFixed(1)}</span>
               </span>
-              <span>
+              <span title="Total posts analyzed across all hours">
                 Posts: <span className="font-mono font-medium text-foreground">{timeline.summary.totalPostsAnalyzed.toLocaleString()}</span>
               </span>
-              <span>
+              <span title="Posts attributed to coordinated account clusters">
                 Coordinated: <span className="font-mono font-medium text-foreground">{timeline.summary.totalCoordinated.toLocaleString()}</span>
               </span>
             </div>

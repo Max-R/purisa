@@ -128,14 +128,14 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
           Data Collection
         </CardTitle>
         <CardDescription>
-          Collect posts from social media platforms and analyze for bot activity
+          Collect posts from social media platforms and analyze for coordination patterns
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Platform and Query Row */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="text-sm font-medium mb-1.5 block">Platform</label>
+            <label className="text-sm font-medium mb-1.5 block" title="Social media platform to collect posts from">Platform</label>
             <Select value={platform} onValueChange={setPlatform}>
               <SelectTrigger>
                 <SelectValue />
@@ -151,7 +151,7 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-sm font-medium mb-1.5 block">Search Queries</label>
+            <label className="text-sm font-medium mb-1.5 block" title="Hashtags or keywords to search for. Add multiple queries to broaden collection.">Search Queries</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -192,7 +192,7 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">Limit</label>
+            <label className="text-sm font-medium mb-1.5 block" title="Maximum number of posts to collect per query">Limit</label>
             <Select value={limit.toString()} onValueChange={(v) => setLimit(parseInt(v))}>
               <SelectTrigger>
                 <SelectValue />
@@ -210,7 +210,7 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
 
         {/* Options Row */}
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <label className="flex items-center gap-2 text-sm cursor-pointer" title="Also collect comments/replies on collected posts. Helps detect reply-pattern coordination.">
             <input
               type="checkbox"
               checked={harvestComments}

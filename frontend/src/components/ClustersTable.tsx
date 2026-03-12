@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Network, ChevronDown, ChevronRight } from 'lucide-react'
+import InfoTooltip from './InfoTooltip'
 import type { ClustersResponse, Cluster } from '../types/coordination'
 
 interface ClustersTableProps {
@@ -27,6 +28,21 @@ function scoreColor(score: number): 'destructive' | 'warning' | 'secondary' {
   if (score >= 60) return 'destructive'
   if (score >= 30) return 'warning'
   return 'secondary'
+}
+
+// Readable cluster type labels + descriptions
+const CLUSTER_TYPES: Record<string, { label: string; description: string }> = {
+  sync_posting: { label: 'Sync Posting', description: 'Accounts posting within 90 seconds of each other' },
+  url: { label: 'URL Sharing', description: 'Accounts sharing the same URLs in a short window' },
+  text: { label: 'Similar Text', description: 'Accounts posting near-identical text content (TF-IDF similarity > 0.8)' },
+  hashtag: { label: 'Hashtag Overlap', description: 'Accounts using the same uncommon hashtag combinations' },
+  reply_pattern: { label: 'Reply Pattern', description: 'Accounts replying to the same targets in a coordinated pattern' },
+  mixed: { label: 'Mixed Signals', description: 'Multiple coordination signals detected (e.g. timing + content)' },
+}
+
+function getClusterType(type: string | null): { label: string; description: string } {
+  if (!type) return CLUSTER_TYPES.mixed
+  return CLUSTER_TYPES[type] ?? { label: type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), description: 'Coordination pattern detected' }
 }
 
 function formatTime(iso: string | null): string {
@@ -67,9 +83,14 @@ function ClusterRow({ cluster }: { cluster: Cluster }) {
           </Badge>
         </TableCell>
         <TableCell>
-          <Badge variant="outline" className="text-xs">
-            {cluster.clusterType || 'mixed'}
-          </Badge>
+          {(() => {
+            const ct = getClusterType(cluster.clusterType)
+            return (
+              <Badge variant="outline" className="text-xs" title={ct.description}>
+                {ct.label}
+              </Badge>
+            )
+          })()}
         </TableCell>
       </TableRow>
 
@@ -77,7 +98,7 @@ function ClusterRow({ cluster }: { cluster: Cluster }) {
         <TableRow>
           <TableCell colSpan={6} className="bg-muted/30 py-2 px-8">
             <div className="text-xs text-muted-foreground mb-1.5 font-medium">
-              Members (top {cluster.members.length} by centrality):
+              Members (ranked by centrality — how connected each account is within the cluster):
             </div>
             <div className="flex flex-wrap gap-2">
               {cluster.members.map((member, idx) => (
@@ -125,14 +146,33 @@ export default function ClustersTable({ clusters, loading }: ClustersTableProps)
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Network className="h-5 w-5 text-muted-foreground" />
-            Detected Clusters
-          </CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Network className="h-5 w-5 text-muted-foreground" />
+              Detected Clusters
+            </CardTitle>
+            <InfoTooltip text="Groups of 3+ accounts that show coordinated behavior patterns. Click a row to see the cluster's members and their centrality scores." />
+          </div>
           <Badge variant="secondary">
             {clusterList.length} {clusterList.length === 1 ? 'cluster' : 'clusters'}
           </Badge>
         </div>
+        {clusterList.length > 0 && (
+          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-1">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+              60+ High
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full bg-yellow-500" />
+              30–59 Moderate
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full bg-gray-400" />
+              &lt;30 Low
+            </span>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="p-0">
@@ -147,11 +187,11 @@ export default function ClustersTable({ clusters, loading }: ClustersTableProps)
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8" />
-                <TableHead>Detected</TableHead>
-                <TableHead className="text-center">Members</TableHead>
-                <TableHead className="text-center">Density</TableHead>
-                <TableHead className="text-center">Score</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead title="When this cluster was first detected">Detected</TableHead>
+                <TableHead className="text-center" title="Number of accounts in this coordination cluster">Members</TableHead>
+                <TableHead className="text-center" title="Network density (0-1). Higher values mean more connections between cluster members.">Density</TableHead>
+                <TableHead className="text-center" title="Coordination score (0-100). Higher = stronger coordination signals.">Score</TableHead>
+                <TableHead title="Primary coordination pattern that formed this cluster">Type</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

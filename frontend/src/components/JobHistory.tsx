@@ -115,9 +115,9 @@ export default function JobHistory({ jobId }: JobHistoryProps) {
             <TableHead>Started</TableHead>
             <TableHead>Duration</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="text-right">Posts</TableHead>
-            <TableHead className="text-right">Score</TableHead>
-            <TableHead className="text-right">Clusters</TableHead>
+            <TableHead className="text-right" title="Number of posts collected during this execution">Posts</TableHead>
+            <TableHead className="text-right" title="Peak coordination score (0-100) from analysis">Score</TableHead>
+            <TableHead className="text-right" title="Number of coordination clusters detected">Clusters</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

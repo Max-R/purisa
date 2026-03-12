@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { usePlatforms } from './hooks/usePlatforms'
 import { useCoordination } from './hooks/useCoordination'
 import PlatformFilter from './components/PlatformFilter'
@@ -16,6 +16,14 @@ export default function App() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
 
   const { platforms } = usePlatforms()
+
+  // Auto-select first platform so coordination endpoints get called
+  useEffect(() => {
+    if (!selectedPlatform && platforms.length > 0) {
+      setSelectedPlatform(platforms[0])
+    }
+  }, [platforms, selectedPlatform])
+
   const {
     timeline,
     clusters,

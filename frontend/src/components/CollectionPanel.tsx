@@ -15,9 +15,10 @@ import { apiClient, type CollectionResult, type AnalysisResult } from '../api/cl
 interface CollectionPanelProps {
   platforms: string[]
   onComplete?: () => void
+  onCollectionComplete?: (query: string) => void
 }
 
-export default function CollectionPanel({ platforms, onComplete }: CollectionPanelProps) {
+export default function CollectionPanel({ platforms, onComplete, onCollectionComplete }: CollectionPanelProps) {
   const [platform, setPlatform] = useState<string>('bluesky')
   const [queries, setQueries] = useState<string[]>([])
   const [currentInput, setCurrentInput] = useState<string>('')
@@ -88,6 +89,11 @@ export default function CollectionPanel({ platforms, onComplete }: CollectionPan
         message: `Collected from ${queries.length} queries`,
         timestamp: new Date().toISOString()
       })
+
+      // Auto-select the first query so the dashboard filters to this collection
+      if (queries.length > 0) {
+        onCollectionComplete?.(queries[0])
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Collection failed')
     } finally {

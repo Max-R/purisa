@@ -3,6 +3,7 @@
  *
  * Shows which scheduled jobs and manual queries have contributed data to
  * the current dashboard view, and provides a dropdown to filter by query.
+ * Highlights when a filter is active with distinct styling and a clear button.
  */
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -13,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { BarChart3, Clock, Calendar } from 'lucide-react'
+import { BarChart3, Clock, Calendar, Filter, X } from 'lucide-react'
 import InfoTooltip from './InfoTooltip'
 import type { QueriesResponse } from '../types/coordination'
 import type { ScheduledJob } from '../types/schedule'
@@ -68,6 +69,7 @@ export default function DataContextBanner({
   )
   const queryList = queries?.queries ?? []
   const totalPosts = queryList.reduce((sum, q) => sum + q.postCount, 0)
+  const isFiltered = selectedQuery !== null
 
   // Nothing to show yet
   if (queryList.length === 0 && platformJobs.length === 0) {
@@ -80,12 +82,15 @@ export default function DataContextBanner({
     .sort((a, b) => b.postCount - a.postCount)
 
   return (
-    <Card className="border-muted">
+    <Card className={isFiltered
+      ? "border-blue-300 bg-blue-50/30 dark:bg-blue-950/20 dark:border-blue-700"
+      : "border-muted"
+    }>
       <CardContent className="py-3 px-4">
         <div className="flex flex-col gap-3">
           {/* Header row */}
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <BarChart3 className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="text-sm font-medium">
                 Showing: {platform.charAt(0).toUpperCase() + platform.slice(1)} coordination data
@@ -99,6 +104,21 @@ export default function DataContextBanner({
                   {totalPosts.toLocaleString()} posts
                 </Badge>
               )}
+
+              {/* Active filter badge with clear button */}
+              {isFiltered && (
+                <Badge className="text-xs flex items-center gap-1 bg-blue-600 hover:bg-blue-700">
+                  <Filter className="h-3 w-3" />
+                  Filtered: {selectedQuery}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onQueryChange(null) }}
+                    className="ml-0.5 hover:bg-blue-800 rounded-full p-0.5"
+                    aria-label="Clear filter"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
             </div>
 
             {/* Query filter dropdown */}
@@ -107,7 +127,7 @@ export default function DataContextBanner({
                 value={selectedQuery ?? '__all__'}
                 onValueChange={(v) => onQueryChange(v === '__all__' ? null : v)}
               >
-                <SelectTrigger className="w-[200px] h-8 text-xs">
+                <SelectTrigger className="w-[240px] h-9 text-sm">
                   <SelectValue placeholder="All queries" />
                 </SelectTrigger>
                 <SelectContent>
@@ -121,6 +141,13 @@ export default function DataContextBanner({
               </Select>
             )}
           </div>
+
+          {/* Score caveat when filtering */}
+          {isFiltered && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 pl-6">
+              Post counts filtered to this query. Coordination scores reflect all platform data.
+            </p>
+          )}
 
           {/* Sources list */}
           <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">

@@ -8,11 +8,62 @@ import type { Stats, CommentStats } from '../types/detection'
 import type { ScheduledJob, JobExecution, CreateJobParams, UpdateJobParams } from '../types/schedule'
 import type {
   TimelineResponse, TimelinePoint,
-  ClustersResponse, Cluster, ClusterMember,
+  ClustersResponse, Cluster, ClusterPatterns,
   CoordinationStats, PeriodStats,
   SpikesResponse, Spike,
   QueriesResponse, QueryInfo,
 } from '../types/coordination'
+
+/** Map snake_case cluster patterns from API to camelCase frontend types. */
+function _mapPatterns(raw: any): ClusterPatterns {
+  if (!raw) return { edgeTypeDistribution: {} }
+
+  const patterns: ClusterPatterns = {
+    edgeTypeDistribution: raw.edge_type_distribution ?? {},
+  }
+
+  if (raw.sync_posting) {
+    patterns.syncPosting = {
+      count: raw.sync_posting.count,
+      avgTimeDiffSeconds: raw.sync_posting.avg_time_diff_seconds,
+      minTimeDiffSeconds: raw.sync_posting.min_time_diff_seconds,
+      maxTimeDiffSeconds: raw.sync_posting.max_time_diff_seconds,
+    }
+  }
+
+  if (raw.url_sharing) {
+    patterns.urlSharing = {
+      count: raw.url_sharing.count,
+      sharedUrls: raw.url_sharing.shared_urls ?? [],
+    }
+  }
+
+  if (raw.text_similarity) {
+    patterns.textSimilarity = {
+      count: raw.text_similarity.count,
+      avgSimilarity: raw.text_similarity.avg_similarity,
+      sampleSnippets: (raw.text_similarity.sample_snippets ?? []).map((s: any) => ({
+        text: s.text,
+        similarity: s.similarity,
+      })),
+    }
+  }
+
+  if (raw.hashtag_overlap) {
+    patterns.hashtagOverlap = {
+      count: raw.hashtag_overlap.count,
+      sharedHashtags: raw.hashtag_overlap.shared_hashtags ?? [],
+    }
+  }
+
+  if (raw.reply_pattern) {
+    patterns.replyPattern = {
+      count: raw.reply_pattern.count,
+    }
+  }
+
+  return patterns
+}
 
 class ApiClient {
   private client: AxiosInstance
@@ -465,13 +516,11 @@ class ApiClient {
           end: c.time_window?.end ?? null,
         },
         memberCount: c.member_count,
+        edgeCount: c.edge_count ?? 0,
         density: c.density,
         clusterType: c.cluster_type,
         coordinationScore: c.coordination_score,
-        members: (c.members || []).map((m: any): ClusterMember => ({
-          accountId: m.account_id,
-          centrality: m.centrality,
-        })),
+        patterns: _mapPatterns(c.patterns),
       })),
     }
   }

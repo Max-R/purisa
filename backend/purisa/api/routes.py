@@ -10,7 +10,7 @@ import json
 import logging
 from purisa.database.connection import get_database
 from purisa.database.models import AccountDB, PostDB, FlagDB, ScoreDB, InflammatoryFlagDB, CommentStatsDB
-from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB, ClusterMemberDB
+from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB, ClusterMemberDB, AccountEdgeDB
 from purisa.database.job_models import ScheduledJobDB, JobExecutionDB
 from purisa.models.account import Account
 from purisa.models.post import Post
@@ -1062,7 +1062,7 @@ async def get_coordination_clusters(
     limit: int = Query(50, ge=1, le=200, description="Maximum clusters to return"),
     query: Optional[str] = Query(None, description="Filter by source query"),
 ):
-    """Get detected coordination clusters."""
+    """Get detected coordination clusters with pattern evidence (no account IDs)."""
     try:
         db = get_database()
         cutoff = datetime.now() - timedelta(hours=hours)
@@ -1089,18 +1089,41 @@ async def get_coordination_clusters(
 
             clusters = clusters_query.all()
 
+            # Batch-load all edges for the platform + time window range
+            all_edges = session.query(AccountEdgeDB).filter(
+                AccountEdgeDB.platform == platform,
+                AccountEdgeDB.time_window_start >= cutoff,
+            ).all()
+
+            # Index edges by (time_window_start, time_window_end) for fast lookup
+            from collections import defaultdict
+            edges_by_window = defaultdict(list)
+            for edge in all_edges:
+                key = (edge.time_window_start, edge.time_window_end)
+                edges_by_window[key].append(edge)
+
             results = []
             for cluster in clusters:
-                # Get cluster members
+                # Get cluster members (needed for filtering, not returned)
                 members = session.query(ClusterMemberDB).filter_by(
                     cluster_id=cluster.cluster_id
-                ).order_by(ClusterMemberDB.centrality_score.desc()).all()
+                ).all()
+                member_ids = {m.account_id for m in members}
 
                 # If filtering by query, skip clusters with no relevant accounts
                 if relevant_account_ids is not None:
-                    member_ids = {m.account_id for m in members}
                     if not member_ids & relevant_account_ids:
                         continue
+
+                # Find edges within this cluster
+                window_key = (cluster.time_window_start, cluster.time_window_end)
+                cluster_edges = [
+                    e for e in edges_by_window.get(window_key, [])
+                    if e.account_id_1 in member_ids and e.account_id_2 in member_ids
+                ]
+
+                # Aggregate patterns from edges
+                patterns = _aggregate_cluster_patterns(cluster_edges)
 
                 results.append({
                     "cluster_id": cluster.cluster_id,
@@ -1110,13 +1133,11 @@ async def get_coordination_clusters(
                         "end": cluster.time_window_end.isoformat() if cluster.time_window_end else None,
                     },
                     "member_count": cluster.member_count,
+                    "edge_count": len(cluster_edges),
                     "density": cluster.density_score,
                     "cluster_type": cluster.cluster_type,
                     "coordination_score": cluster.coordination_score,
-                    "members": [{
-                        "account_id": m.account_id,
-                        "centrality": m.centrality_score,
-                    } for m in members[:10]]  # Top 10 members by centrality
+                    "patterns": patterns,
                 })
 
             return {
@@ -1129,6 +1150,93 @@ async def get_coordination_clusters(
     except Exception as e:
         logger.error(f"Error getting coordination clusters: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _aggregate_cluster_patterns(edges) -> dict:
+    """Aggregate edge evidence into pattern summaries for a cluster.
+
+    Returns pattern data without exposing any account identifiers.
+    """
+    from collections import defaultdict
+
+    edge_type_counts = defaultdict(int)
+    sync_diffs = []
+    shared_urls = set()
+    text_snippets = []
+    shared_hashtags = set()
+    reply_count = 0
+
+    for edge in edges:
+        etype = edge.edge_type or 'unknown'
+        edge_type_counts[etype] += 1
+        evidence = edge.evidence or {}
+
+        if etype == 'synchronized_posting':
+            td = evidence.get('time_diff_seconds')
+            if td is not None:
+                sync_diffs.append(float(td))
+
+        elif etype == 'url_sharing':
+            url = evidence.get('shared_url')
+            if url:
+                shared_urls.add(url)
+
+        elif etype == 'text_similarity':
+            preview = evidence.get('text1_preview') or evidence.get('text2_preview')
+            if preview:
+                text_snippets.append({
+                    'text': preview[:100],
+                    'similarity': edge.similarity_score or 0.0,
+                })
+
+        elif etype == 'hashtag':
+            tags = evidence.get('shared_hashtags', [])
+            if isinstance(tags, list):
+                shared_hashtags.update(tags)
+
+        elif etype == 'reply_pattern':
+            reply_count += 1
+
+    patterns = {
+        "edge_type_distribution": dict(edge_type_counts),
+    }
+
+    if sync_diffs:
+        patterns["sync_posting"] = {
+            "count": edge_type_counts.get('synchronized_posting', 0),
+            "avg_time_diff_seconds": round(sum(sync_diffs) / len(sync_diffs), 1),
+            "min_time_diff_seconds": round(min(sync_diffs), 1),
+            "max_time_diff_seconds": round(max(sync_diffs), 1),
+        }
+
+    if edge_type_counts.get('url_sharing', 0) > 0:
+        patterns["url_sharing"] = {
+            "count": edge_type_counts['url_sharing'],
+            "shared_urls": sorted(shared_urls)[:5],
+        }
+
+    if text_snippets:
+        # Sort by similarity descending, take top 3
+        text_snippets.sort(key=lambda x: x['similarity'], reverse=True)
+        avg_sim = sum(s['similarity'] for s in text_snippets) / len(text_snippets)
+        patterns["text_similarity"] = {
+            "count": edge_type_counts.get('text_similarity', 0),
+            "avg_similarity": round(avg_sim, 2),
+            "sample_snippets": text_snippets[:3],
+        }
+
+    if shared_hashtags:
+        patterns["hashtag_overlap"] = {
+            "count": edge_type_counts.get('hashtag', 0),
+            "shared_hashtags": sorted(shared_hashtags)[:10],
+        }
+
+    if reply_count > 0:
+        patterns["reply_pattern"] = {
+            "count": reply_count,
+        }
+
+    return patterns
 
 
 @router.post("/coordination/analyze")

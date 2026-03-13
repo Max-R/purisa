@@ -71,6 +71,11 @@ export default function App() {
     }
   }, [refetchCoordination, selectedPlatform])
 
+  const handleCollectionComplete = useCallback((query: string) => {
+    setSelectedQuery(query)
+    handleRefresh()
+  }, [handleRefresh])
+
   const handleTimelineHoursChange = useCallback(async () => {
     await refetchCoordination()
   }, [refetchCoordination])
@@ -154,6 +159,7 @@ export default function App() {
           <CollectionPanel
             platforms={platforms.length > 0 ? platforms : ['bluesky', 'hackernews']}
             onComplete={handleRefresh}
+            onCollectionComplete={handleCollectionComplete}
           />
 
           {/* Scheduled Jobs */}
@@ -161,9 +167,6 @@ export default function App() {
             platforms={platforms.length > 0 ? platforms : ['bluesky', 'hackernews']}
             onJobComplete={handleRefresh}
           />
-
-          {/* Spikes Alert */}
-          <SpikesAlert spikes={spikes} />
 
           {/* Data Context Banner */}
           {selectedPlatform && (
@@ -175,6 +178,9 @@ export default function App() {
               onQueryChange={setSelectedQuery}
             />
           )}
+
+          {/* Spikes Alert */}
+          <SpikesAlert spikes={spikes} />
 
           {/* Coordination Stats */}
           <CoordinationStatsCards

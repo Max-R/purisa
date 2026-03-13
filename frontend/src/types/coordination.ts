@@ -30,9 +30,44 @@ export interface TimelineResponse {
 
 // ─── Clusters ─────────────────────────────────────────────
 
-export interface ClusterMember {
-  accountId: string
-  centrality: number
+export interface EdgeTypeDistribution {
+  [edgeType: string]: number
+}
+
+export interface SyncPostingPattern {
+  count: number
+  avgTimeDiffSeconds: number
+  minTimeDiffSeconds: number
+  maxTimeDiffSeconds: number
+}
+
+export interface UrlSharingPattern {
+  count: number
+  sharedUrls: string[]
+}
+
+export interface TextSimilarityPattern {
+  count: number
+  avgSimilarity: number
+  sampleSnippets: { text: string; similarity: number }[]
+}
+
+export interface HashtagPattern {
+  count: number
+  sharedHashtags: string[]
+}
+
+export interface ReplyPattern {
+  count: number
+}
+
+export interface ClusterPatterns {
+  edgeTypeDistribution: EdgeTypeDistribution
+  syncPosting?: SyncPostingPattern
+  urlSharing?: UrlSharingPattern
+  textSimilarity?: TextSimilarityPattern
+  hashtagOverlap?: HashtagPattern
+  replyPattern?: ReplyPattern
 }
 
 export interface Cluster {
@@ -43,10 +78,11 @@ export interface Cluster {
     end: string | null
   }
   memberCount: number
+  edgeCount: number
   density: number
   clusterType: string
   coordinationScore: number
-  members: ClusterMember[]
+  patterns: ClusterPatterns
 }
 
 export interface ClustersResponse {

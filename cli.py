@@ -71,7 +71,7 @@ def collect(platform, query, limit, harvest_comments):
                     click.echo(f"Collecting {limit} posts from {platform} with query: {q}")
 
                 posts = await collector.collect_from_platform(platform, q, limit)
-                await collector.store_posts(posts)
+                await collector.store_posts(posts, source_query=q)
                 all_posts.extend(posts)
 
                 if not TQDM_AVAILABLE:

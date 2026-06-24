@@ -144,7 +144,7 @@ class JobExecutor:
                     posts = await self.collector.collect_from_platform(
                         platform, query, collect_limit
                     )
-                    await self.collector.store_posts(posts)
+                    await self.collector.store_posts(posts, source_query=query)
                     total_posts += len(posts)
                     account_ids = set(p.account_id for p in posts)
                     total_accounts += len(account_ids)

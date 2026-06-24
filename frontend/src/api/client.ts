@@ -8,10 +8,62 @@ import type { Stats, CommentStats } from '../types/detection'
 import type { ScheduledJob, JobExecution, CreateJobParams, UpdateJobParams } from '../types/schedule'
 import type {
   TimelineResponse, TimelinePoint,
-  ClustersResponse, Cluster, ClusterMember,
+  ClustersResponse, Cluster, ClusterPatterns,
   CoordinationStats, PeriodStats,
   SpikesResponse, Spike,
+  QueriesResponse, QueryInfo,
 } from '../types/coordination'
+
+/** Map snake_case cluster patterns from API to camelCase frontend types. */
+function _mapPatterns(raw: any): ClusterPatterns {
+  if (!raw) return { edgeTypeDistribution: {} }
+
+  const patterns: ClusterPatterns = {
+    edgeTypeDistribution: raw.edge_type_distribution ?? {},
+  }
+
+  if (raw.sync_posting) {
+    patterns.syncPosting = {
+      count: raw.sync_posting.count,
+      avgTimeDiffSeconds: raw.sync_posting.avg_time_diff_seconds,
+      minTimeDiffSeconds: raw.sync_posting.min_time_diff_seconds,
+      maxTimeDiffSeconds: raw.sync_posting.max_time_diff_seconds,
+    }
+  }
+
+  if (raw.url_sharing) {
+    patterns.urlSharing = {
+      count: raw.url_sharing.count,
+      sharedUrls: raw.url_sharing.shared_urls ?? [],
+    }
+  }
+
+  if (raw.text_similarity) {
+    patterns.textSimilarity = {
+      count: raw.text_similarity.count,
+      avgSimilarity: raw.text_similarity.avg_similarity,
+      sampleSnippets: (raw.text_similarity.sample_snippets ?? []).map((s: any) => ({
+        text: s.text,
+        similarity: s.similarity,
+      })),
+    }
+  }
+
+  if (raw.hashtag_overlap) {
+    patterns.hashtagOverlap = {
+      count: raw.hashtag_overlap.count,
+      sharedHashtags: raw.hashtag_overlap.shared_hashtags ?? [],
+    }
+  }
+
+  if (raw.reply_pattern) {
+    patterns.replyPattern = {
+      count: raw.reply_pattern.count,
+    }
+  }
+
+  return patterns
+}
 
 class ApiClient {
   private client: AxiosInstance
@@ -418,10 +470,10 @@ class ApiClient {
   /**
    * Get coordination score timeline
    */
-  async getCoordinationTimeline(platform: string, hours: number = 168): Promise<TimelineResponse> {
-    const response = await this.client.get('/coordination/timeline', {
-      params: { platform, hours }
-    })
+  async getCoordinationTimeline(platform: string, hours: number = 168, query?: string): Promise<TimelineResponse> {
+    const params: any = { platform, hours }
+    if (query) params.query = query
+    const response = await this.client.get('/coordination/timeline', { params })
     const d = response.data
     return {
       platform: d.platform,
@@ -447,10 +499,10 @@ class ApiClient {
   /**
    * Get detected coordination clusters
    */
-  async getCoordinationClusters(platform: string, hours: number = 24): Promise<ClustersResponse> {
-    const response = await this.client.get('/coordination/clusters', {
-      params: { platform, hours }
-    })
+  async getCoordinationClusters(platform: string, hours: number = 24, query?: string): Promise<ClustersResponse> {
+    const params: any = { platform, hours }
+    if (query) params.query = query
+    const response = await this.client.get('/coordination/clusters', { params })
     const d = response.data
     return {
       platform: d.platform,
@@ -464,13 +516,11 @@ class ApiClient {
           end: c.time_window?.end ?? null,
         },
         memberCount: c.member_count,
+        edgeCount: c.edge_count ?? 0,
         density: c.density,
         clusterType: c.cluster_type,
         coordinationScore: c.coordination_score,
-        members: (c.members || []).map((m: any): ClusterMember => ({
-          accountId: m.account_id,
-          centrality: m.centrality,
-        })),
+        patterns: _mapPatterns(c.patterns),
       })),
     }
   }
@@ -478,9 +528,10 @@ class ApiClient {
   /**
    * Get coordination stats summary
    */
-  async getCoordinationStats(platform?: string): Promise<CoordinationStats> {
+  async getCoordinationStats(platform?: string, query?: string): Promise<CoordinationStats> {
     const params: any = {}
     if (platform) params.platform = platform
+    if (query) params.query = query
 
     const response = await this.client.get('/coordination/stats', { params })
     const d = response.data
@@ -504,10 +555,10 @@ class ApiClient {
   /**
    * Get coordination spikes
    */
-  async getCoordinationSpikes(platform: string, hours: number = 168): Promise<SpikesResponse> {
-    const response = await this.client.get('/coordination/spikes', {
-      params: { platform, hours }
-    })
+  async getCoordinationSpikes(platform: string, hours: number = 168, query?: string): Promise<SpikesResponse> {
+    const params: any = { platform, hours }
+    if (query) params.query = query
+    const response = await this.client.get('/coordination/spikes', { params })
     const d = response.data
     return {
       platform: d.platform,
@@ -522,6 +573,27 @@ class ApiClient {
         clusterCount: s.cluster_count,
         baselineMedian: s.baseline_median,
         baselineMadStd: s.baseline_mad_std,
+      })),
+    }
+  }
+
+  /**
+   * Get distinct source queries with post counts for a platform
+   */
+  async getCoordinationQueries(platform: string, hours: number = 168): Promise<QueriesResponse> {
+    const response = await this.client.get('/coordination/queries', {
+      params: { platform, hours }
+    })
+    const d = response.data
+    return {
+      platform: d.platform,
+      hours: d.hours,
+      totalQueries: d.total_queries,
+      queries: d.queries.map((q: any): QueryInfo => ({
+        query: q.query,
+        postCount: q.post_count,
+        earliest: q.earliest,
+        latest: q.latest,
       })),
     }
   }

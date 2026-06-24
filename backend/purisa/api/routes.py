@@ -10,7 +10,7 @@ import json
 import logging
 from purisa.database.connection import get_database
 from purisa.database.models import AccountDB, PostDB, FlagDB, ScoreDB, InflammatoryFlagDB, CommentStatsDB
-from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB, ClusterMemberDB
+from purisa.database.coordination_models import CoordinationMetricDB, CoordinationClusterDB, ClusterMemberDB, AccountEdgeDB
 from purisa.database.job_models import ScheduledJobDB, JobExecutionDB
 from purisa.models.account import Account
 from purisa.models.post import Post
@@ -410,7 +410,7 @@ async def trigger_collection(
             result["posts_collected"] = len(posts)
 
             # Store posts and accounts in database
-            await collector.store_posts(posts)
+            await collector.store_posts(posts, source_query=query)
 
             # Count unique accounts
             account_ids = set(p.account_id for p in posts)
@@ -881,6 +881,61 @@ async def get_comment_stats_overview(platform: Optional[str] = Query(None)):
 # Coordination Detection Endpoints (Purisa 2.0)
 # ============================================================================
 
+# Label shown for posts with no tracked source query (legacy / pre-tracking).
+UNKNOWN_QUERY_LABEL = "(unknown)"
+
+
+def _source_query_filter(query: str):
+    """Build the PostDB.source_query filter clause for a selected query.
+
+    Legacy posts have a NULL source_query and are surfaced under
+    UNKNOWN_QUERY_LABEL; selecting that label must match NULL rows, since
+    `source_query == "(unknown)"` never matches NULL in SQL.
+    """
+    if query == UNKNOWN_QUERY_LABEL:
+        return PostDB.source_query.is_(None)
+    return PostDB.source_query == query
+
+
+@router.get("/coordination/queries")
+async def get_coordination_queries(
+    platform: str = Query(..., description="Platform to query"),
+    hours: int = Query(168, ge=1, le=720, description="Hours to look back (default: 7 days)"),
+):
+    """Get distinct source queries with post counts for a platform."""
+    try:
+        db = get_database()
+        cutoff = datetime.now() - timedelta(hours=hours)
+
+        with db.get_session() as session:
+            results = session.query(
+                PostDB.source_query,
+                func.count(PostDB.id).label('post_count'),
+                func.min(PostDB.created_at).label('earliest'),
+                func.max(PostDB.created_at).label('latest'),
+            ).filter(
+                PostDB.platform == platform,
+                PostDB.created_at >= cutoff,
+                PostDB.post_type == 'post',
+            ).group_by(PostDB.source_query).all()
+
+            return {
+                "platform": platform,
+                "hours": hours,
+                "queries": [{
+                    "query": r.source_query or UNKNOWN_QUERY_LABEL,
+                    "post_count": r.post_count,
+                    "earliest": r.earliest.isoformat() if r.earliest else None,
+                    "latest": r.latest.isoformat() if r.latest else None,
+                } for r in results],
+                "total_queries": len(results),
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting coordination queries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/coordination/metrics")
 async def get_coordination_metrics(
     platform: str = Query(..., description="Platform to query"),
@@ -909,7 +964,8 @@ async def get_coordination_metrics(
 async def get_coordination_spikes(
     platform: str = Query(..., description="Platform to query"),
     hours: int = Query(168, ge=1, le=720, description="Hours to look back (default: 7 days)"),
-    threshold: float = Query(2.0, ge=0.5, le=5.0, description="Standard deviations threshold")
+    threshold: float = Query(2.0, ge=0.5, le=5.0, description="Standard deviations threshold"),
+    query: Optional[str] = Query(None, description="Filter by source query (reserved for future use)"),
 ):
     """Get coordination spikes above baseline."""
     try:
@@ -920,6 +976,7 @@ async def get_coordination_spikes(
             "platform": platform,
             "hours": hours,
             "threshold_std": threshold,
+            "query": query,
             "spikes": spikes,
             "total": len(spikes)
         }
@@ -932,7 +989,8 @@ async def get_coordination_spikes(
 @router.get("/coordination/timeline")
 async def get_coordination_timeline(
     platform: str = Query(..., description="Platform to query"),
-    hours: int = Query(168, ge=1, le=720, description="Hours to look back (default: 7 days)")
+    hours: int = Query(168, ge=1, le=720, description="Hours to look back (default: 7 days)"),
+    query: Optional[str] = Query(None, description="Filter by source query"),
 ):
     """Get coordination score timeline for visualization."""
     try:
@@ -940,36 +998,69 @@ async def get_coordination_timeline(
         cutoff = datetime.now() - timedelta(hours=hours)
 
         with db.get_session() as session:
+            # Always get the platform-wide metrics (scores are network-level)
             metrics = session.query(CoordinationMetricDB).filter(
                 CoordinationMetricDB.platform == platform,
                 CoordinationMetricDB.time_bucket >= cutoff,
                 CoordinationMetricDB.bucket_type == 'hourly'
             ).order_by(CoordinationMetricDB.time_bucket.asc()).all()
 
-            timeline = [{
-                "time": m.time_bucket.isoformat(),
-                "score": m.coordination_score,
-                "posts": m.total_posts_analyzed,
-                "coordinated": m.coordinated_posts_count,
-                "clusters": m.active_cluster_count,
-                "sync_rate": m.synchronized_posting_rate,
-            } for m in metrics]
+            if query:
+                # Build a map of per-hour post counts filtered by query
+                query_posts = session.query(
+                    func.strftime('%Y-%m-%dT%H:00:00', PostDB.created_at).label('hour'),
+                    func.count(PostDB.id).label('post_count'),
+                ).filter(
+                    PostDB.platform == platform,
+                    _source_query_filter(query),
+                    PostDB.created_at >= cutoff,
+                    PostDB.post_type == 'post',
+                ).group_by('hour').all()
+
+                query_post_counts = {r.hour: r.post_count for r in query_posts}
+
+                # Overlay query-filtered post counts onto platform-wide scores
+                timeline = []
+                for m in metrics:
+                    hour_key = m.time_bucket.strftime('%Y-%m-%dT%H:00:00')
+                    filtered_posts = query_post_counts.get(hour_key, 0)
+                    if filtered_posts > 0 or not query:
+                        timeline.append({
+                            "time": m.time_bucket.isoformat(),
+                            "score": m.coordination_score,
+                            "posts": filtered_posts,
+                            "coordinated": m.coordinated_posts_count,
+                            "clusters": m.active_cluster_count,
+                            "sync_rate": m.synchronized_posting_rate,
+                        })
+            else:
+                timeline = [{
+                    "time": m.time_bucket.isoformat(),
+                    "score": m.coordination_score,
+                    "posts": m.total_posts_analyzed,
+                    "coordinated": m.coordinated_posts_count,
+                    "clusters": m.active_cluster_count,
+                    "sync_rate": m.synchronized_posting_rate,
+                } for m in metrics]
 
             # Calculate summary stats
-            scores = [m.coordination_score for m in metrics]
+            scores = [t["score"] for t in timeline] if timeline else []
+            posts_sum = sum(t["posts"] for t in timeline) if timeline else 0
+            coordinated_sum = sum(t["coordinated"] for t in timeline) if timeline else 0
             avg_score = sum(scores) / len(scores) if scores else 0
             max_score = max(scores) if scores else 0
 
             return {
                 "platform": platform,
                 "hours": hours,
+                "query": query,
                 "timeline": timeline,
                 "summary": {
                     "data_points": len(timeline),
                     "average_score": round(avg_score, 2),
                     "peak_score": round(max_score, 2),
-                    "total_posts_analyzed": sum(m.total_posts_analyzed for m in metrics),
-                    "total_coordinated": sum(m.coordinated_posts_count for m in metrics),
+                    "total_posts_analyzed": posts_sum,
+                    "total_coordinated": coordinated_sum,
                 }
             }
 
@@ -983,28 +1074,71 @@ async def get_coordination_clusters(
     platform: str = Query(..., description="Platform to query"),
     hours: int = Query(24, ge=1, le=168, description="Hours to look back"),
     min_size: int = Query(3, ge=2, description="Minimum cluster size"),
-    limit: int = Query(50, ge=1, le=200, description="Maximum clusters to return")
+    limit: int = Query(50, ge=1, le=200, description="Maximum clusters to return"),
+    query: Optional[str] = Query(None, description="Filter by source query"),
 ):
-    """Get detected coordination clusters."""
+    """Get detected coordination clusters with pattern evidence (no account IDs)."""
     try:
         db = get_database()
         cutoff = datetime.now() - timedelta(hours=hours)
 
         with db.get_session() as session:
-            clusters = session.query(CoordinationClusterDB).filter(
+            # If query filter is provided, find accounts that posted matching content
+            relevant_account_ids = None
+            if query:
+                relevant_accounts = session.query(PostDB.account_id).filter(
+                    PostDB.platform == platform,
+                    _source_query_filter(query),
+                    PostDB.created_at >= cutoff,
+                    PostDB.post_type == 'post',
+                ).distinct().all()
+                relevant_account_ids = {r.account_id for r in relevant_accounts}
+
+            clusters_query = session.query(CoordinationClusterDB).filter(
                 CoordinationClusterDB.platform == platform,
                 CoordinationClusterDB.detected_at >= cutoff,
                 CoordinationClusterDB.member_count >= min_size
             ).order_by(
                 CoordinationClusterDB.coordination_score.desc()
-            ).limit(limit).all()
+            ).limit(limit)
+
+            clusters = clusters_query.all()
+
+            # Batch-load all edges for the platform + time window range
+            all_edges = session.query(AccountEdgeDB).filter(
+                AccountEdgeDB.platform == platform,
+                AccountEdgeDB.time_window_start >= cutoff,
+            ).all()
+
+            # Index edges by (time_window_start, time_window_end) for fast lookup
+            from collections import defaultdict
+            edges_by_window = defaultdict(list)
+            for edge in all_edges:
+                key = (edge.time_window_start, edge.time_window_end)
+                edges_by_window[key].append(edge)
 
             results = []
             for cluster in clusters:
-                # Get cluster members
+                # Get cluster members (needed for filtering, not returned)
                 members = session.query(ClusterMemberDB).filter_by(
                     cluster_id=cluster.cluster_id
-                ).order_by(ClusterMemberDB.centrality_score.desc()).all()
+                ).all()
+                member_ids = {m.account_id for m in members}
+
+                # If filtering by query, skip clusters with no relevant accounts
+                if relevant_account_ids is not None:
+                    if not member_ids & relevant_account_ids:
+                        continue
+
+                # Find edges within this cluster
+                window_key = (cluster.time_window_start, cluster.time_window_end)
+                cluster_edges = [
+                    e for e in edges_by_window.get(window_key, [])
+                    if e.account_id_1 in member_ids and e.account_id_2 in member_ids
+                ]
+
+                # Aggregate patterns from edges
+                patterns = _aggregate_cluster_patterns(cluster_edges)
 
                 results.append({
                     "cluster_id": cluster.cluster_id,
@@ -1014,13 +1148,11 @@ async def get_coordination_clusters(
                         "end": cluster.time_window_end.isoformat() if cluster.time_window_end else None,
                     },
                     "member_count": cluster.member_count,
+                    "edge_count": len(cluster_edges),
                     "density": cluster.density_score,
                     "cluster_type": cluster.cluster_type,
                     "coordination_score": cluster.coordination_score,
-                    "members": [{
-                        "account_id": m.account_id,
-                        "centrality": m.centrality_score,
-                    } for m in members[:10]]  # Top 10 members by centrality
+                    "patterns": patterns,
                 })
 
             return {
@@ -1033,6 +1165,93 @@ async def get_coordination_clusters(
     except Exception as e:
         logger.error(f"Error getting coordination clusters: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _aggregate_cluster_patterns(edges) -> dict:
+    """Aggregate edge evidence into pattern summaries for a cluster.
+
+    Returns pattern data without exposing any account identifiers.
+    """
+    from collections import defaultdict
+
+    edge_type_counts = defaultdict(int)
+    sync_diffs = []
+    shared_urls = set()
+    text_snippets = []
+    shared_hashtags = set()
+    reply_count = 0
+
+    for edge in edges:
+        etype = edge.edge_type or 'unknown'
+        edge_type_counts[etype] += 1
+        evidence = edge.evidence or {}
+
+        if etype == 'synchronized_posting':
+            td = evidence.get('time_diff_seconds')
+            if td is not None:
+                sync_diffs.append(float(td))
+
+        elif etype == 'url_sharing':
+            url = evidence.get('shared_url')
+            if url:
+                shared_urls.add(url)
+
+        elif etype == 'text_similarity':
+            preview = evidence.get('text1_preview') or evidence.get('text2_preview')
+            if preview:
+                text_snippets.append({
+                    'text': preview[:100],
+                    'similarity': edge.similarity_score or 0.0,
+                })
+
+        elif etype == 'hashtag':
+            tags = evidence.get('shared_hashtags', [])
+            if isinstance(tags, list):
+                shared_hashtags.update(tags)
+
+        elif etype == 'reply_pattern':
+            reply_count += 1
+
+    patterns = {
+        "edge_type_distribution": dict(edge_type_counts),
+    }
+
+    if sync_diffs:
+        patterns["sync_posting"] = {
+            "count": edge_type_counts.get('synchronized_posting', 0),
+            "avg_time_diff_seconds": round(sum(sync_diffs) / len(sync_diffs), 1),
+            "min_time_diff_seconds": round(min(sync_diffs), 1),
+            "max_time_diff_seconds": round(max(sync_diffs), 1),
+        }
+
+    if edge_type_counts.get('url_sharing', 0) > 0:
+        patterns["url_sharing"] = {
+            "count": edge_type_counts['url_sharing'],
+            "shared_urls": sorted(shared_urls)[:5],
+        }
+
+    if text_snippets:
+        # Sort by similarity descending, take top 3
+        text_snippets.sort(key=lambda x: x['similarity'], reverse=True)
+        avg_sim = sum(s['similarity'] for s in text_snippets) / len(text_snippets)
+        patterns["text_similarity"] = {
+            "count": edge_type_counts.get('text_similarity', 0),
+            "avg_similarity": round(avg_sim, 2),
+            "sample_snippets": text_snippets[:3],
+        }
+
+    if shared_hashtags:
+        patterns["hashtag_overlap"] = {
+            "count": edge_type_counts.get('hashtag', 0),
+            "shared_hashtags": sorted(shared_hashtags)[:10],
+        }
+
+    if reply_count > 0:
+        patterns["reply_pattern"] = {
+            "count": reply_count,
+        }
+
+    return patterns
 
 
 @router.post("/coordination/analyze")
@@ -1093,7 +1312,10 @@ async def trigger_coordination_analysis(
 
 
 @router.get("/coordination/stats")
-async def get_coordination_stats(platform: Optional[str] = Query(None)):
+async def get_coordination_stats(
+    platform: Optional[str] = Query(None),
+    query: Optional[str] = Query(None, description="Filter by source query"),
+):
     """Get overall coordination detection statistics."""
     try:
         db = get_database()
@@ -1121,24 +1343,37 @@ async def get_coordination_stats(platform: Optional[str] = Query(None)):
                 CoordinationMetricDB.time_bucket >= cutoff_7d
             ).all()
 
-            # Calculate stats
-            def calc_stats(metrics):
+            # Calculate stats — scores are platform-wide, but post counts can be filtered
+            def calc_stats(metrics, cutoff=None):
                 if not metrics:
-                    return {"avg_score": 0, "peak_score": 0, "total_posts": 0, "total_coordinated": 0}
+                    return {"avg_score": 0, "peak_score": 0, "total_posts": 0, "total_coordinated": 0, "hours_analyzed": 0}
                 scores = [m.coordination_score for m in metrics]
+
+                # If filtering by query, get post count from PostDB instead
+                if query and platform and cutoff:
+                    post_count = session.query(func.count(PostDB.id)).filter(
+                        PostDB.platform == platform,
+                        _source_query_filter(query),
+                        PostDB.created_at >= cutoff,
+                        PostDB.post_type == 'post',
+                    ).scalar() or 0
+                else:
+                    post_count = sum(m.total_posts_analyzed for m in metrics)
+
                 return {
                     "avg_score": round(sum(scores) / len(scores), 2),
                     "peak_score": round(max(scores), 2),
-                    "total_posts": sum(m.total_posts_analyzed for m in metrics),
+                    "total_posts": post_count,
                     "total_coordinated": sum(m.coordinated_posts_count for m in metrics),
                     "hours_analyzed": len(metrics),
                 }
 
             return {
                 "platform": platform or "all",
+                "query": query,
                 "total_clusters_detected": total_clusters,
-                "last_24h": calc_stats(recent_metrics),
-                "last_7d": calc_stats(week_metrics),
+                "last_24h": calc_stats(recent_metrics, cutoff_24h),
+                "last_7d": calc_stats(week_metrics, cutoff_7d),
             }
 
     except Exception as e:

@@ -130,6 +130,19 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 - **Job API uses JSON bodies**: POST/PUT `/api/jobs` accept Pydantic request bodies (not query params) — queries are sent as JSON arrays to avoid comma-splitting bugs
 - **Lazy executor init**: `JobExecutor` uses `@property` for collector/analyzer to avoid blocking the event loop at startup (BlueskyPlatform does synchronous HTTP login)
 - **Recharts**: Frontend uses `recharts` for interactive coordination timeline chart
+- **source_query tracking**: `PostDB.source_query` stores which search query collected each post. Legacy posts (pre-tracking) have `NULL`. Lightweight migration in `connection.py` adds the column to existing databases.
+- **Query-filtered coordination**: Timeline/clusters/stats endpoints accept optional `query` param. When provided, post counts come from PostDB (filtered), but coordination scores remain platform-wide (from CoordinationMetricDB).
+
+## Git Workflow
+
+All non-trivial changes must be done on a feature branch (`feature/<name>`) and merged via PR. Never commit directly to `main`.
+
+```bash
+git checkout -b feature/my-feature   # Create feature branch
+# ... make changes ...
+git push -u origin feature/my-feature
+gh pr create --title "Add my feature" --body "..."
+```
 
 ## Testing
 
@@ -162,3 +175,4 @@ python3 cli.py stats
 | DELETE | `/api/jobs/{id}` | Delete job |
 | POST | `/api/jobs/{id}/run` | Manual trigger |
 | GET | `/api/jobs/{id}/history` | Execution history |
+| GET | `/api/coordination/queries?platform=X` | Distinct source queries with post counts |

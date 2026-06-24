@@ -881,6 +881,22 @@ async def get_comment_stats_overview(platform: Optional[str] = Query(None)):
 # Coordination Detection Endpoints (Purisa 2.0)
 # ============================================================================
 
+# Label shown for posts with no tracked source query (legacy / pre-tracking).
+UNKNOWN_QUERY_LABEL = "(unknown)"
+
+
+def _source_query_filter(query: str):
+    """Build the PostDB.source_query filter clause for a selected query.
+
+    Legacy posts have a NULL source_query and are surfaced under
+    UNKNOWN_QUERY_LABEL; selecting that label must match NULL rows, since
+    `source_query == "(unknown)"` never matches NULL in SQL.
+    """
+    if query == UNKNOWN_QUERY_LABEL:
+        return PostDB.source_query.is_(None)
+    return PostDB.source_query == query
+
+
 @router.get("/coordination/queries")
 async def get_coordination_queries(
     platform: str = Query(..., description="Platform to query"),
@@ -907,7 +923,7 @@ async def get_coordination_queries(
                 "platform": platform,
                 "hours": hours,
                 "queries": [{
-                    "query": r.source_query or "(unknown)",
+                    "query": r.source_query or UNKNOWN_QUERY_LABEL,
                     "post_count": r.post_count,
                     "earliest": r.earliest.isoformat() if r.earliest else None,
                     "latest": r.latest.isoformat() if r.latest else None,
@@ -991,13 +1007,12 @@ async def get_coordination_timeline(
 
             if query:
                 # Build a map of per-hour post counts filtered by query
-                from sqlalchemy import cast, String
                 query_posts = session.query(
                     func.strftime('%Y-%m-%dT%H:00:00', PostDB.created_at).label('hour'),
                     func.count(PostDB.id).label('post_count'),
                 ).filter(
                     PostDB.platform == platform,
-                    PostDB.source_query == query,
+                    _source_query_filter(query),
                     PostDB.created_at >= cutoff,
                     PostDB.post_type == 'post',
                 ).group_by('hour').all()
@@ -1073,7 +1088,7 @@ async def get_coordination_clusters(
             if query:
                 relevant_accounts = session.query(PostDB.account_id).filter(
                     PostDB.platform == platform,
-                    PostDB.source_query == query,
+                    _source_query_filter(query),
                     PostDB.created_at >= cutoff,
                     PostDB.post_type == 'post',
                 ).distinct().all()
@@ -1338,7 +1353,7 @@ async def get_coordination_stats(
                 if query and platform and cutoff:
                     post_count = session.query(func.count(PostDB.id)).filter(
                         PostDB.platform == platform,
-                        PostDB.source_query == query,
+                        _source_query_filter(query),
                         PostDB.created_at >= cutoff,
                         PostDB.post_type == 'post',
                     ).scalar() or 0

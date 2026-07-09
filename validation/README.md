@@ -115,7 +115,7 @@ one that means anything.
 ## Roadmap (Phase 0 legs)
 
 - [x] IRA loader + recall harness (this scaffold)
-- [ ] Run + calibrate: recall numbers on dense 2016 windows, with/without retweets
+- [x] Run + calibrate: recall numbers on dense windows, with/without retweets — see `RESULTS.md`
 - [ ] Negative control: benign-but-busy organic corpus → false-positive rate
 - [ ] Synthetic injection: threshold sweep → ROC for `sync_window_seconds`,
       `text_similarity_threshold`, `min_cluster_density`

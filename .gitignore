@@ -94,6 +94,10 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Validation datasets and run outputs (large / regenerable)
+validation/data/
+validation/results/
+
 # Purisa specific
 purisa.db
 purisa.db-journal

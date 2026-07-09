@@ -165,7 +165,7 @@ class CoordinationAnalyzer:
                 return result
 
             # Detect clusters
-            clusters = self._detect_clusters(graph, hour_start)
+            clusters = self._detect_clusters(graph, hour_start, platform)
 
             # Calculate coordination metrics
             result = self._calculate_metrics(
@@ -487,7 +487,7 @@ class CoordinationAnalyzer:
                 evidence={result.similarity_type: result.evidence}
             )
 
-    def _detect_clusters(self, G: nx.Graph, time_window_start: datetime) -> List[Cluster]:
+    def _detect_clusters(self, G: nx.Graph, time_window_start: datetime, platform: str) -> List[Cluster]:
         """Detect coordination clusters using Louvain community detection."""
         if G.number_of_nodes() < self.config.min_cluster_size:
             return []
@@ -524,9 +524,9 @@ class CoordinationAnalyzer:
 
                 primary_type = max(edge_types, key=edge_types.get) if edge_types else 'unknown'
 
-                # Use time window for cluster_id to ensure uniqueness and reproducibility
+                # Platform + time window: unique across platforms, reproducible across re-runs
                 cluster = Cluster(
-                    cluster_id=f"{time_window_start.strftime('%Y%m%d_%H%M')}_cluster_{i}",
+                    cluster_id=f"{platform}_{time_window_start.strftime('%Y%m%d_%H%M')}_cluster_{i}",
                     members=list(community),
                     density=density,
                     size=len(community),

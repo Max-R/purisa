@@ -1,6 +1,6 @@
 # Purisa — Vision
 
-*The strategy of record. Living document. Last updated 2026-06-24.*
+*The strategy of record. Living document. Last updated 2026-09-22.*
 
 Purisa began as a coordination-detection system for Bluesky and Hacker News. This
 document records its evolution into a **collective-behaviour observatory**: one
@@ -189,15 +189,43 @@ expanding it.
 
 ### Phase 2 — Semantic enrichment layer (tiered)
 
-- New `backend/purisa/services/enricher.py` `SemanticEnricher`, following the existing
-  inflammatory-flag + lazy-`@property` template in `collector.py`.
-- **Tier 1:** VADER sentiment on every post. **Tier 2:** Claude Haiku 4.5 for
-  stance / target / narrative on posts the structural detectors already flag
-  (cost-bounded — never the full firehose).
-- Storage: start in `PostDB.platform_metadata` (JSON, **no migration**); promote hot
-  fields (`sentiment_score`, `target_entity`) to real columns only if query performance
-  demands.
-- Hook point: inside `UniversalCollector.store_posts()` (or its call sites) before merge.
+Decision 2026-09-22: the per-post classification tier is built on **Jev** (TypeSafe AI's
+System One model: typed Choice / Score / Noul decisions with calibrated probabilities,
+no text generation) instead of Claude Haiku 4.5. Rationale, cost model and risks are in
+`docs/spikes/2026-09-22-jev.md`. Jev is adopted for **this one use case only**; it
+does not touch the structural engine, scoring, timing, or Detoxify.
+
+- **Phase 2a — Jev probe (gate).** Before any integration: `validation/jev_probe.py`
+  over ~500 IRA originals (stratified by `account_category`) + ~500 live Bluesky
+  posts, a 200-post two-rater label set, and an adversarial slice (injection-style
+  text in posts). Adopt only if rater agreement ≥ Haiku on the same 200, calibration
+  is monotone, and the adversarial slice does not flip verdicts. Results go in
+  `validation/JEV_RESULTS.md`. Requires `TYPESAFE_API_KEY` in `backend/.env`.
+- **Phase 2b — Enricher.** New `backend/purisa/services/enricher.py` `SemanticEnricher`
+  interface + `JevEnricher` implementation, following the existing inflammatory-flag +
+  lazy-`@property` template in `collector.py`. Haiku or a local model must remain a
+  drop-in behind the same interface (vendor-lock guardrail).
+- **Tier 1:** VADER sentiment on every post. **Tier 2:** one Jev call per post asking
+  every semantic question at once (sentiment, target, hostility-to-target, factual
+  claim, promotional, language). Cheap enough (~$18 per million posts at ~430 input
+  tokens) to run on everything collected, but throughput is capped by the 1,200
+  req/min rate limit, so bulk re-enrichment is a background job, not inline.
+- **Design constraint:** Jev cannot extract. Code proposes the candidate set
+  (mentions, hashtags, NER, or a seeded narrative list); Jev picks and scores. This is
+  the "retrieve then judge" pattern and it is what Phase 3 consumes.
+- **Reproducibility (§9):** pin `model="jev-1.13.0"`; store `response.model`, full
+  `probabilities` and `confidence` alongside the answer; keep question text in a
+  versioned `jev_questions.py`; re-run the probe on every version bump. Never place
+  instructions in `state` (posts are attacker-controlled and Jev treats state as
+  non-hostile).
+- Storage: start in `PostDB.platform_metadata['jev']` (JSON, **no migration**);
+  promote hot fields (`sentiment_score`, `target_entity`) to real columns only if
+  query performance demands.
+- Hook point: inside `UniversalCollector.store_posts()` (or its call sites) before
+  merge, behind a settings flag.
+- Deferred, pending probe results: a Jev **cluster-triage judge** that ranks flagged
+  clusters for human adjudication (§7 step 5). If built, its output is stored beside
+  the structural score, never inside it.
 
 ### Phase 3 — New detectors
 
@@ -217,7 +245,8 @@ expanding it.
 ### Parked — infrastructure (the "how", decided after the "what")
 
 Turso (edge SQLite) for the Postgres-ready DB; an embedding store for narrative
-clustering; LLM-enricher batching/caching. Revisit when a build target is chosen.
+clustering; enricher result caching (Jev has no batch API — one state per request —
+so caching by post id is the only lever). Revisit when a build target is chosen.
 
 ---
 

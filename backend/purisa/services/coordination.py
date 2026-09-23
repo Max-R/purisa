@@ -50,6 +50,7 @@ class CoordinationConfig:
     min_cluster_size: int = 3
     min_cluster_density: float = 0.3
     louvain_resolution: float = 1.0
+    louvain_seed: int = 42  # Louvain RNG seed; validation sweeps vary it to measure seed sensitivity
 
     # Edge weights
     sync_weight: float = 1.0
@@ -329,9 +330,8 @@ class CoordinationAnalyzer:
         """
         G = nx.Graph()
 
-        # Add all accounts as nodes
-        account_ids = set(p.account_id for p in posts)
-        for account_id in account_ids:
+        # Add all accounts as nodes, sorted: set order follows per-process string hashing
+        for account_id in sorted(set(p.account_id for p in posts)):
             G.add_node(account_id)
 
         # Prepare posts for similarity analysis
@@ -366,7 +366,27 @@ class CoordinationAnalyzer:
             self._add_edge(G, edge, 'reply_pattern', self.config.reply_pattern_weight)
 
         logger.info(f"Built network with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
-        return G
+        return self._canonical_graph(G)
+
+    @staticmethod
+    def _canonical_graph(G: nx.Graph) -> nx.Graph:
+        """
+        Rebuild G with nodes and edges inserted in sorted order.
+
+        Louvain's output depends on node and adjacency iteration order, not just
+        on its seed. Detectors emit edges in orders that can follow set iteration,
+        which varies per process under Python's string-hash randomisation, so a
+        fixed seed alone does not make cluster detection reproducible.
+        """
+        H = nx.Graph()
+        H.add_nodes_from(sorted(G.nodes()))
+        H.add_edges_from(
+            sorted(
+                ((min(u, v), max(u, v), data) for u, v, data in G.edges(data=True)),
+                key=lambda e: (e[0], e[1]),
+            )
+        )
+        return H
 
     def _find_synchronized_pairs(
         self,
@@ -376,8 +396,8 @@ class CoordinationAnalyzer:
         edges = []
         seen_pairs: Set[Tuple[str, str]] = set()
 
-        # Sort posts by time
-        sorted_posts = sorted(posts, key=lambda p: p.created_at)
+        # Sort posts by time; id breaks the frequent same-timestamp ties deterministically
+        sorted_posts = sorted(posts, key=lambda p: (p.created_at, p.id))
 
         # Sliding window comparison
         for i, post1 in enumerate(sorted_posts):
@@ -499,7 +519,7 @@ class CoordinationAnalyzer:
                 G,
                 resolution=self.config.louvain_resolution,
                 weight='weight',
-                seed=42
+                seed=self.config.louvain_seed
             )
 
             clusters = []
@@ -527,7 +547,7 @@ class CoordinationAnalyzer:
                 # Platform + time window: unique across platforms, reproducible across re-runs
                 cluster = Cluster(
                     cluster_id=f"{platform}_{time_window_start.strftime('%Y%m%d_%H%M')}_cluster_{i}",
-                    members=list(community),
+                    members=sorted(community),
                     density=density,
                     size=len(community),
                     edge_count=subgraph.number_of_edges(),

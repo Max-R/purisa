@@ -1,6 +1,6 @@
 # Purisa — Vision
 
-*The strategy of record. Living document. Last updated 2026-09-22.*
+*The strategy of record. Living document. Last updated 2026-10-12.*
 
 Purisa began as a coordination-detection system for Bluesky and Hacker News. This
 document records its evolution into a **collective-behaviour observatory**: one
@@ -17,9 +17,13 @@ configurable platform that answers a single question across many phenomena —
 
 One-liner: *"Is this real, or is it engineered?" — answered with evidence, not vibes.*
 
-**Positioning:** a rigorous, reproducible, **neutral core** with **watchdog framing**.
-The engine measures; it does not editorialize. The presentation serves accountability.
-Every claim the tool surfaces must be defensible enough to publish.
+**Positioning:** a **non-commercial research project with a watchdog lens** (decided
+2026-10-12). Research governs the *method*: reproducible runs, published validation,
+open code and parameters, non-commercial use only. The watchdog lens governs the
+*questions*: we study the campaigns that matter for public accountability. The engine
+measures; it does not editorialize. Outputs are research findings at the campaign
+level, never a public list of accused accounts. Every claim must be defensible enough
+to publish.
 
 ---
 
@@ -329,6 +333,10 @@ In this order:
 
 ### Phase 4 — Preset-aware dashboard
 
+**Campaign-level only.** The dashboard is a research instrument, not a public
+accusation feed: anything shown publicly is aggregated to the cluster or campaign
+level. Account-level evidence stays behind review (see guardrails, §9).
+
 - Extend cluster pattern types in `frontend/src/types/coordination.ts`; add per-preset
   views (`brigade_indicators`, `narrative_map`, `sentiment_over_time`) swapped via the
   existing `useCoordination` hook and component structure in `App.tsx`.
@@ -367,8 +375,10 @@ store is **no longer parked** (Phase 1). Revisit the rest when a build target is
 
 ## 9. Non-goals & guardrails
 
-- **Not a data broker.** We do not sell detections or user data. The product is insight
-  and accountability, not surveillance-for-hire.
+- **Research only, non-commercial.** No paid product, no client work, no selling of
+  detections or user data. Output is published research and open tooling, in the
+  public interest — not surveillance-for-hire. This also keeps us compatible with
+  research-only data licences (e.g. OSoMe, CC BY-NC-ND).
 - **Precision-first.** A false "this is a brigade" is worse than a missed one — it
   manufactures a false accusation. Tune for defensibility.
 - **Reproducibility.** Seeded clustering (`seed=42`), documented thresholds, and

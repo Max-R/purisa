@@ -118,7 +118,7 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 - **CLI .env loading**: `cli.py` lines 20-24 explicitly load `backend/.env` via dotenv — needed because CLI runs from project root
 - **cluster_id**: Uses `time_window_start.strftime()` not `datetime.now()` — enables idempotent re-analysis
 - **Coordination model registration**: `connection.py` imports `coordination_models` to ensure tables are created
-- **Louvain determinism**: `seed=42` in `louvain_communities()` ensures reproducible cluster detection
+- **Louvain determinism**: `seed=42` in `louvain_communities()` is not enough on its own — Louvain's output also depends on node/edge insertion order, and Python's per-process string-hash randomisation otherwise reorders them (e.g. 5 vs 3 clusters for the same hour under different `PYTHONHASHSEED`s). `_build_network` therefore inserts nodes and edges in sorted order (`_canonical_graph`). The seed is configurable via `CoordinationConfig.louvain_seed` (default 42)
 - **AccountEdgeDB**: Populated by `_store_results()` — edges are written per analysis run (old edges deleted first for idempotency)
 - **Rate clamping**: `sync_rate`, `url_rate`, `text_rate` are clamped to [0.0, 1.0] in `_calculate_metrics()`
 - **Tailwind**: Must be compiled separately — `start.sh` runs `bunx tailwindcss` in watch mode alongside Bun dev server

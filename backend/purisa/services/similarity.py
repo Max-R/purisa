@@ -241,7 +241,7 @@ def find_url_sharing_pairs(
     # Build URL -> posts index
     url_to_posts: Dict[str, List[Tuple[str, str]]] = {}  # url -> [(post_id, account_id)]
     for post_id, (account_id, urls) in post_urls.items():
-        for url in urls:
+        for url in sorted(urls):
             if url not in url_to_posts:
                 url_to_posts[url] = []
             url_to_posts[url].append((post_id, account_id))
@@ -253,7 +253,10 @@ def find_url_sharing_pairs(
     results = []
     seen_pairs = set()
 
-    for url, posts_with_url in url_to_posts.items():
+    # Sorted: URL sets iterate in per-process string-hash order, and the first URL
+    # to reach a pair (seen_pairs) decides that pair's rarity weight
+    for url in sorted(url_to_posts):
+        posts_with_url = url_to_posts[url]
         if len(posts_with_url) < 2:
             continue
 
@@ -349,7 +352,7 @@ def find_hashtag_overlap_pairs(
                     evidence={
                         'account1': account1_id,
                         'account2': account2_id,
-                        'shared_hashtags': list(overlap),
+                        'shared_hashtags': sorted(overlap),
                         'overlap_count': len(overlap),
                     }
                 ))

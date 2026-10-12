@@ -51,6 +51,33 @@ dense analysis windows (the Oct-Nov 2016 US election stretch is the obvious
 first target). Analyzing all six years hour-by-hour (~50k hours) is pointless;
 most hours are sparse.
 
+Each run writes `validation/results/metrics_<tag>_<start>_<end>_<confighash>.json`
+(pass `--output` to override). `<confighash>` is the first 8 hex chars of a
+SHA-1 over the full `CoordinationConfig` (including `louvain_seed`), so runs
+over the same window under different configs or seeds no longer overwrite each
+other (issue #13); the config itself is recorded under
+`generated_for.analyzer_config` in the JSON.
+
+### Threshold sweep
+
+```bash
+cp validation/ira.db validation/ira_sweep.db
+python3 validation/run_validation.py --db validation/ira_sweep.db \
+    --start 2015-09-16 --end 2015-09-17 --sweep --seeds 42,7
+```
+
+`--sweep` varies one parameter at a time around the defaults
+(`sync_window_seconds` 10/30/60/90/300, `text_similarity_threshold`
+0.7/0.8/0.9, `min_cluster_density` 0.2/0.3/0.5), repeating each config once
+per seed in `--seeds`, and writes `sweep_<tag>_<start>_<end>.json`. Without
+`--sweep`, `--seeds` takes exactly one value (default 42).
+
+**Sweeps rewrite stored clusters.** Every analysis run replaces the clusters,
+edges and metrics stored for the windows it analyses, so after a sweep the DB
+holds whichever config ran last. The harness therefore refuses `--sweep`
+unless the `--db` filename contains `sweep` or `copy` (issue #18); pass
+`--allow-rewrite` to override deliberately.
+
 For a quick smoke test before committing to the full load:
 
 ```bash
@@ -84,6 +111,29 @@ one that means anything.
 - **Per-category recall** — the dataset labels accounts (RightTroll, LeftTroll,
   NewsFeed, HashtagGamer, NonEnglish, ...). NonEnglish behaviour under the
   TF-IDF tokenizer is a known question mark; per-category numbers surface it.
+- **Cluster size stats** — count, min / median / mean / max members, and
+  `largest_cluster_share` = size of the run's largest cluster / distinct
+  clustered accounts. "In any cluster" is a generous hit criterion; one giant
+  cluster would make recall trivial, and these numbers show whether it did.
+- **Purity** — an account is *control* when
+  `AccountDB.platform_metadata['is_control']` is truthy, otherwise
+  *coordinated*. Cluster purity = coordinated members / members; reported as
+  mean purity, share of clusters with purity ≥ 0.9, and control accounts
+  clustered / total (false positives). **Null on IRA**: every account is a
+  troll, so there is no negative class.
+- **Per-category co-clustering** — number and share of clusters whose
+  coordinated members all carry one category. Control accounts are excluded
+  from the category set, so padding a troll cluster with controls (or an
+  all-control cluster) cannot pass as single-category.
+- **Separation** (issue #14) — account-level
+  `participation = windows_clustered / windows_active`, where
+  *windows_active* = hourly windows in the analysed range in which the account
+  has ≥1 analyzer-visible post, and *windows_clustered* = those in which it
+  sits in a detected cluster. Separation = ROC-AUC of participation,
+  coordinated (positive) vs control (negative), with the KS statistic as a
+  secondary number. Reported for K≥3 (headline) and K≥1, where **this K
+  counts active windows, not posts** — it is not the recall K. **Null until a
+  dataset with control accounts is loaded**; on IRA it is always n/a.
 
 ## Provenance & ethics notes
 
@@ -111,11 +161,75 @@ one that means anything.
   stays NULL. Follower/following counts are harvest-time snapshots (max kept).
 - **Rows without a tweet_id** get a deterministic content-hash ID; re-loading is
   idempotent either way (`INSERT OR IGNORE` on primary key).
+- **Minute resolution**: `publish_date` carries no seconds, so every gap
+  between posts is a whole number of minutes. Any sync window under 60 s
+  therefore only catches same-minute pairs, and all such windows (10 s, 30 s,
+  ...) behave identically — the timestamps cannot express the difference. The
+  10 s and 30 s sweep rows measure the timestamp format, not the detector;
+  treat them as meaningless on IRA.
+- **Determinism**: results used to vary from process to process for the same
+  window — Louvain's output depends on node/edge insertion order, and Python's
+  per-process string-hash randomisation reordered them despite `seed=42`.
+  Fixed on `feature/phase0-fixes` by inserting nodes and edges in sorted order
+  (`CoordinationAnalyzer._canonical_graph`); see the addendum in `RESULTS.md`.
+- **Every run rewrites stored clusters** (and edges and metrics) for the
+  analysed windows in whichever DB `--db` points at — not just sweeps. Point
+  it at `purisa.db` and it will overwrite production analysis for those hours.
+
+## Datasets and licences
+
+Issue #15. Researched 2026-09-22; not legal advice. Summary of the terms for
+the two datasets planned for the precision leg.
+
+### OSoMe / Seckin et al., "Labeled Datasets for Research on Information Operations"
+
+- **Where**: Zenodo concept record `10.5281/zenodo.14141549`, with 28 version
+  DOIs — one per campaign plus "Main" (`10.5281/zenodo.14189193`, README and
+  index). Paper: arXiv 2411.10609; ICWSM 2025.
+- **Licence**: CC BY-NC-ND 4.0.
+- **Access**: restricted, request-based. Under the data-sharing policy updated
+  2026-09-09, requesters must be faculty, research staff or graduate students
+  at a recognised research institution, applying from an institutional email
+  address. The access terms allow **one data file per researcher per day**.
+- **Labels**: `is_control` is **True for control accounts, False for IO
+  accounts** (note the polarity). Account IDs, post IDs, URLs and usernames
+  are one-way hashed.
+- **What we may do**: use the files locally for non-commercial validation
+  once access is granted; publish aggregate metrics (recall, precision, FPR,
+  separation) with a citation to the paper; commit a loader that reads files
+  the user obtained themselves, tested on **synthetic fixtures only**. **Never
+  publish per-account output such as lists of hashed IDs** — that is sharing
+  Adapted Material, which ND forbids. Never automate around Zenodo's access
+  gate.
+
+### South Korea NIS 2012 (Keller, Schoch, Stier & Yang)
+
+- **Where**: OSF project `10.17605/OSF.IO/TPA6U`. Public, no login.
+- **Licence**: none declared (`node_license: null`), so all rights reserved
+  by default; no licence to redistribute.
+- **Contents used**: `nis_tweets.csv` has `user_id`, `user_name` and `date`
+  only — 702 unique accounts, ~194k rows, **no tweet text and no tweet IDs**.
+  Only timing and account-level signals (sync, co-activity) are testable;
+  text, URL and hashtag channels are not.
+- **What we may do**: a loader that fetches from OSF **at runtime**, with
+  retry and backoff on HTTP 429 (OSF rate-limits after roughly ten requests).
+  Never commit the account list or anything derived from it. Cite Keller et
+  al. 2020 (*Political Communication* 37(2)) with any published number.
+
+**Status**: the OSoMe access request is to be submitted as an independent
+civic-research project. While it is pending, the precision leg proceeds on
+NIS + Bluesky organic controls + synthetic injection.
 
 ## Roadmap (Phase 0 legs)
 
 - [x] IRA loader + recall harness (this scaffold)
 - [x] Run + calibrate: recall numbers on dense windows, with/without retweets — see `RESULTS.md`
+- [x] Cluster purity metric (control accounts via `platform_metadata['is_control']`)
+- [x] Separation metric (participation ROC-AUC / KS) — implemented; n/a until
+      a dataset with controls is loaded
+- [x] Threshold sweep harness (`--sweep`, `--seeds`) — see `RESULTS.md` addendum
+- [ ] Submit OSoMe access request
+- [ ] NIS loader (runtime OSF fetch, no committed data)
 - [ ] Negative control: benign-but-busy organic corpus → false-positive rate
 - [ ] Synthetic injection: threshold sweep → ROC for `sync_window_seconds`,
       `text_similarity_threshold`, `min_cluster_density`

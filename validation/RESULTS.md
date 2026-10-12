@@ -69,3 +69,67 @@ Recall only. Precision / false-positive rate requires the negative-control
 and synthetic-injection legs (see README roadmap). Treat these numbers as
 "the engine does not miss dense coordinated behaviour", not "the engine can
 tell it apart from organic behaviour".
+
+## Addendum 2026-09-22 (feature/phase0-fixes)
+
+### Determinism bug and fix
+
+Results were not reproducible across processes. `louvain_communities()` was
+seeded (`seed=42`), but Louvain's output also depends on node and adjacency
+insertion order, and the graph was built by iterating sets of account IDs and
+detector output whose order follows Python's per-process string-hash
+randomisation. Measured: the 12:00 hour on 2015-09-16 gave **5 / 3 / 3 / 4
+clusters under `PYTHONHASHSEED` 0 / 1 / 2 / 3**.
+
+Fix: `_build_network` now returns a canonical graph with nodes and edges
+inserted in sorted order (`_canonical_graph`); sync-pair detection breaks
+same-timestamp ties by post ID; URL-pair and cluster-member output are
+sorted. After the fix the same hour gives **3 clusters in every run**, and the
+full-day metrics JSON is **byte-identical across four hash seeds**.
+
+### Regenerated numbers (fixed engine, default config)
+
+| Window | K≥1 | K≥3 | K≥5 | Clusters | Sizes min / median / mean / max | Largest cluster | Single-category |
+|---|---|---|---|---|---|---|---|
+| 2015-09-16 (day) | 87.5% (77/88) | 97.4% (37/38) | 100% (27/27) | 69 | 3 / 4 / 4.59 / 9 | 11.7% | 11/69 |
+| 2016-10-01 → 10-08 (wk) | 98.6% (214/217) | 100% (181/181) | 100% (161/161) | 685 | 3 / 6 / 6.47 / 24 | 11.2% | 85/685 |
+
+Recall is unchanged in both windows. The Oct 2016 week's 685 clusters were
+reported as 695 in July — the difference is process noise from the bug above,
+not a change in behaviour. "Largest cluster" is the share of distinct
+clustered accounts sitting in the single largest cluster, so neither window's
+recall rests on one giant cluster.
+
+The Aug 2017 and Jan 2018 windows were **not re-run**; their cluster counts
+under the fixed engine may differ by a few from any earlier figures. Recall is
+unaffected by the fix.
+
+### Threshold sweep (2015-09-16, seeds 42 and 7)
+
+One parameter varied at a time around the defaults:
+
+| Setting | K≥1 | K≥3 | K≥5 | Clusters |
+|---|---|---|---|---|
+| sync 10 s, 30 s | 50.0% | 76.3% | 92.6% | 38 |
+| sync 60 s, 90 s (default) | 87.5% | 97.4% | 100% | 69 |
+| sync 300 s | 98.9% | 100% | 100% | 67–69 |
+| text threshold 0.7 / 0.8 / 0.9 | 87.5% | 97.4% | 100% | 69 |
+| min density 0.5 | 65.9% | 94.7% | 100% | 58–60 |
+
+Seeds 42 and 7 differ by only 1–2 clusters in any row and never in recall.
+The sweep was run *before* the determinism fix, so the 1–2 cluster spread
+mixes seed variation with the process noise described above; re-run it to
+separate the two.
+
+Interpretation: **the sync window dominates** recall on this corpus, and the
+text threshold is inert here. The 10 s / 30 s rows are an artefact —
+`publish_date` has minute resolution, so any sub-60 s window only sees
+same-minute pairs, which is why 10 s and 30 s are identical (see the README's
+minute-resolution caveat). They say nothing about the detector at those
+windows.
+
+### Purity and separation
+
+n/a on IRA: there are no control accounts, so there is no negative class.
+Both will be populated by the NIS / OSoMe legs (see README, "Datasets and
+licences").

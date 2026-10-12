@@ -381,8 +381,9 @@ store is **no longer parked** (Phase 1). Revisit the rest when a build target is
   research-only data licences (e.g. OSoMe, CC BY-NC-ND).
 - **Precision-first.** A false "this is a brigade" is worse than a missed one — it
   manufactures a false accusation. Tune for defensibility.
-- **Reproducibility.** Seeded clustering (`seed=42`), documented thresholds, and
-  published validation metrics. Anyone should be able to reproduce a finding.
+- **Reproducibility.** Seeded clustering (`seed=42`) over a canonically ordered graph
+  (the seed alone is not enough — insertion order also changes the result), documented
+  thresholds, and published validation metrics. Anyone should be able to reproduce a finding.
 - **Coordination ≠ guilt.** The tool measures *structure*, not *intent*. Surface the
   evidence; let humans draw conclusions.
 - **Coordination ≠ inauthenticity.** The axis is "structural coordination", never

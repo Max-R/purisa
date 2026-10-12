@@ -116,7 +116,7 @@ When running without the wrapper: `source backend/venv/bin/activate && python3 c
 - **SQLAlchemy `metadata` reserved**: Columns named `cluster_metadata`, `metric_metadata`, `event_metadata` instead
 - **Two venvs**: Use `backend/venv/` (3.12), not root `venv/` (3.9 legacy)
 - **CLI .env loading**: `cli.py` lines 20-24 explicitly load `backend/.env` via dotenv — needed because CLI runs from project root
-- **cluster_id**: Uses `time_window_start.strftime()` not `datetime.now()` — enables idempotent re-analysis
+- **cluster_id**: `{platform}_{YYYYmmdd_HHMM}_cluster_{i}` from `time_window_start`, not `datetime.now()` — enables idempotent re-analysis. The platform prefix is required: the column is globally unique, so two platforms analysing the same hour would otherwise collide and the second platform's clusters would be silently dropped
 - **Coordination model registration**: `connection.py` imports `coordination_models` to ensure tables are created
 - **Louvain determinism**: `seed=42` in `louvain_communities()` is not enough on its own — Louvain's output also depends on node/edge insertion order, and Python's per-process string-hash randomisation otherwise reorders them (e.g. 5 vs 3 clusters for the same hour under different `PYTHONHASHSEED`s). `_build_network` therefore inserts nodes and edges in sorted order (`_canonical_graph`). The seed is configurable via `CoordinationConfig.louvain_seed` (default 42)
 - **AccountEdgeDB**: Populated by `_store_results()` — edges are written per analysis run (old edges deleted first for idempotency)
